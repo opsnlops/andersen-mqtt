@@ -25,6 +25,8 @@ std::atomic<bool> keepRunning(true);
 void setupSerialPort(int serial_port) {
     struct termios tty;
 
+    debug("configuring the serial port to 9600 N81");
+
     // Read in existing settings, and handle any error
     if(tcgetattr(serial_port, &tty) != 0) {
         error("Error {} from tcgetattr: {}", errno, strerror(errno));
@@ -63,6 +65,8 @@ void setupSerialPort(int serial_port) {
     if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
         error("Error {} from tcgetattr: {}", errno, strerror(errno));
     }
+
+    debug("serial port configured");
 }
 
 
