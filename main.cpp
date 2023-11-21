@@ -7,6 +7,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
+#include <string>
+#include <iomanip>
+#include <iostream>
 
 // spdlog
 #include "spdlog/spdlog.h"
@@ -70,8 +73,21 @@ void setupSerialPort(int serial_port) {
 }
 
 
+std::vector<std::string> bytesToHexStrings(const uint8_t* bytes, size_t size) {
+    std::vector<std::string> hexStrings;
+    hexStrings.reserve(size); // Reserve space for efficiency
+
+    for (size_t i = 0; i < size; ++i) {
+        std::stringstream hexStream;
+        hexStream << std::hex << std::setw(2) << std::setfill('0') << std::uppercase << static_cast<int>(bytes[i]);
+        hexStrings.push_back(hexStream.str());
+    }
+
+    return hexStrings;
+}
+
 void readFromSerial(int serial_port) {
-    char read_buf[256];
+    uint8_t read_buf[256];
     while (keepRunning) {
         memset(&read_buf, '\0', sizeof(read_buf));
         int num_bytes = read(serial_port, &read_buf, sizeof(read_buf));
@@ -81,7 +97,17 @@ void readFromSerial(int serial_port) {
             error("Error reading: {}", strerror(errno));
         } else {
             if(num_bytes > 0) {
-                debug("Read {} bytes. Received message: {}", num_bytes, read_buf);
+                debug("Read {} bytes", num_bytes);
+                std::vector<std::string> byteString = bytesToHexStrings(read_buf, num_bytes);
+
+                std::cout << '[';
+                for (size_t i = 0; i < byteString.size(); ++i) {
+                    std::cout << "0x" << byteString[i];
+                    if (i < byteString.size() - 1) {
+                        std::cout << ", ";
+                    }
+                }
+                std::cout << ']' << std::endl;
             }
         }
 
