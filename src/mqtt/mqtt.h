@@ -13,10 +13,10 @@
 
 namespace creatures {
 
-    class MQTT {
+    class MQTTClient {
     public:
-        MQTT(std::string host, std::string port);
-        ~MQTT() = default;
+        MQTTClient(std::string host, std::string port);
+        ~MQTTClient() = default;
 
         bool on_connack(bool sp, mqtt::connect_return_code connack_return_code);
 
@@ -31,8 +31,8 @@ namespace creatures {
 
         using packet_id_t = typename ClientType::element_type::packet_id_t;
 
-        std::uint16_t pid_sub1;
-        std::uint16_t pid_sub2;
+        packet_id_t pid_sub1;
+        packet_id_t pid_sub2;
 
     };
 

@@ -10,7 +10,7 @@
 
 namespace creatures {
 
-    MQTT::MQTT(std::string host, std::string port) {
+    MQTTClient::MQTTClient(std::string host, std::string port) {
 
         info("creating a new MQTT instance for host {} and port {}", host, port);
 
@@ -26,14 +26,14 @@ namespace creatures {
         client->set_clean_session(true);
 
         // Bind the member function for the connack handler
-        client->set_connack_handler(std::bind(&MQTT::on_connack, this, std::placeholders::_1, std::placeholders::_2));
+        client->set_connack_handler(std::bind(&MQTTClient::on_connack, this, std::placeholders::_1, std::placeholders::_2));
 
         client->connect();
         ioc.run();
 
     }
 
-    bool MQTT::on_connack(bool sp, mqtt::connect_return_code connack_return_code) {
+    bool MQTTClient::on_connack(bool sp, mqtt::connect_return_code connack_return_code) {
 
         debug("on_connack called! session present: {}, connack_return_code: {}", sp, mqtt::connect_return_code_to_str(connack_return_code));
 

@@ -157,7 +157,7 @@ int main() {
     // Console logger
     spdlog::set_level(spdlog::level::trace);
 
-    creatures::MQTT mqtt = creatures::MQTT("10.3.2.5", "1883");
+    creatures::MQTTClient mqtt = creatures::MQTTClient("10.3.2.5", "1883");
 
     // Open the serial port
     debug("opening serial port");
