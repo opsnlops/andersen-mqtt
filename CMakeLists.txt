@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.26)
-project(andersen_mqtt)
+project(andersen_mqtt VERSION 1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
@@ -44,12 +45,15 @@ if(NOT mqtt_cpp_POPULATED)
 endif()
 
 
-file(GLOB programFiles
-        src/*
+include_directories(
+        src/
 )
 
 add_executable(andersen_mqtt
-        ${programFiles}
+        src/main.cpp
+        src/mqtt/mqtt.cpp
+        src/mqtt/mqtt.h
+        src/namespace-stuffs.h
 )
 
 target_include_directories(andersen_mqtt PRIVATE ${MQTT_CPP_INCLUDE})

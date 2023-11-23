@@ -12,16 +12,11 @@
 #include <iostream>
 
 // spdlog
-#include "spdlog/spdlog.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 
-using spdlog::trace;
-using spdlog::debug;
-using spdlog::info;
-using spdlog::warn;
-using spdlog::error;
-using spdlog::critical;
+#include "namespace-stuffs.h"
 
+#include "mqtt/mqtt.h"
 
 std::atomic<bool> keepRunning(true);
 
@@ -162,6 +157,9 @@ int main() {
     // Console logger
     spdlog::set_level(spdlog::level::trace);
 
+    creatures::MQTT mqtt = creatures::MQTT("10.3.2.5", "1883");
+
+    // Open the serial port
     debug("opening serial port");
     int serial_port = open("/dev/tty.usbserial-B000PDRX", O_RDWR | O_NONBLOCK);
     info("port is open, fd {}", serial_port);
