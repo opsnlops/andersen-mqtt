@@ -8,6 +8,8 @@ set(FETCHCONTENT_QUIET OFF)
 
 find_package(PkgConfig REQUIRED)
 
+# Find Boost
+find_package(Boost REQUIRED COMPONENTS system)
 
 # fmt
 FetchContent_Declare(
@@ -29,10 +31,32 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(spdlog)
 
 
-add_executable(andersen_mqtt main.cpp)
+FetchContent_Declare(
+        mqtt_cpp
+        GIT_REPOSITORY https://github.com/redboltz/mqtt_cpp.git
+        GIT_TAG v13.2.1
+)
+
+FetchContent_GetProperties(mqtt_cpp)
+if(NOT mqtt_cpp_POPULATED)
+    FetchContent_Populate(mqtt_cpp)
+    set(MQTT_CPP_INCLUDE ${mqtt_cpp_SOURCE_DIR}/include)
+endif()
+
+
+file(GLOB programFiles
+        src/*
+)
+
+add_executable(andersen_mqtt
+        ${programFiles}
+)
+
+target_include_directories(andersen_mqtt PRIVATE ${MQTT_CPP_INCLUDE})
 
 target_link_libraries(andersen_mqtt
         PUBLIC
         fmt::fmt
         spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32>
+        Boost::system
 )
