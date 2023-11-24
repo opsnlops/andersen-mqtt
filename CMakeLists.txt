@@ -47,6 +47,11 @@ if(NOT mqtt_cpp_POPULATED)
 endif()
 
 
+FetchContent_Declare(
+        json
+        URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz)
+FetchContent_MakeAvailable(json)
+
 include_directories(
         src/
 )
@@ -58,6 +63,8 @@ add_executable(andersen_mqtt
         src/namespace-stuffs.h
         src/mqtt/log_wrapper.cpp
         src/mqtt/log_wrapper.h
+        src/window/window.h
+        src/window/window.cpp
 )
 
 target_include_directories(andersen_mqtt PRIVATE ${MQTT_CPP_INCLUDE})
@@ -68,4 +75,5 @@ target_link_libraries(andersen_mqtt
         spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32>
         Boost::system
         Boost::log
+        nlohmann_json::nlohmann_json
 )

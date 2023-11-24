@@ -14,10 +14,14 @@
 // spdlog
 #include "spdlog/sinks/stdout_color_sinks.h"
 
+#include <nlohmann/json.hpp>
+
 #include "namespace-stuffs.h"
 
 #include "mqtt/mqtt.h"
 #include "mqtt/log_wrapper.h"
+#include "window/window.h"
+
 
 std::atomic<bool> keepRunning(true);
 
@@ -158,9 +162,26 @@ int main() {
     // Console logger
     spdlog::set_level(spdlog::level::trace);
 
+    info("Welcome to Andersen to MQTT! 🪟");
+
+    // Leave some version info to be found
+    debug("spdlog version {}.{}.{}", SPDLOG_VER_MAJOR, SPDLOG_VER_MINOR, SPDLOG_VER_PATCH);
+    debug("fmt version {}", FMT_VERSION);
+    debug("json version {}.{}.{}", NLOHMANN_JSON_VERSION_MAJOR, NLOHMANN_JSON_VERSION_MINOR, NLOHMANN_JSON_VERSION_PATCH);
+
     // Set up our boost -> spdlog wrapper
     init_boost_logging();
     MQTT_NS::setup_log();
+
+    auto window1 = std::make_shared<creatures::Window>("window1", 1);
+    auto window2 = std::make_shared<creatures::Window>("window2", 2);
+
+    window1->setStatus(0x0D);
+    window2->setStatus(0x0C);
+
+    info("window1 test: {}", window1->toJson());
+    info("window2 test: {}", window2->toJson());
+
 
     creatures::MQTTClient mqtt = creatures::MQTTClient("10.3.2.5", "1883");
 
