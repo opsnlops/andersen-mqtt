@@ -1,4 +1,5 @@
 
+#include <csignal>
 #include <sstream>
 #include <vector>
 #include <thread>
@@ -23,7 +24,29 @@
 #include "window/window.h"
 
 
+
+
+// Old school pointer so the signal handler knows what to do
+creatures::MQTTClient* mqttClient = nullptr;
 std::atomic<bool> keepRunning(true);
+
+extern "C" void signalHandler(int signalNumber) {
+    if (signalNumber == SIGINT) {
+
+        std::cerr << "Exiting..." << std::endl;
+
+        // Stop the serial reader
+        keepRunning = false;
+
+        // Stop the MQTT client
+        if (mqttClient) {
+            mqttClient->stop();
+        }
+
+
+    }
+}
+
 
 void setupSerialPort(int serial_port) {
     struct termios tty;
@@ -132,7 +155,7 @@ std::vector<uint8_t> hexStringsToBytes(const std::vector<std::string>& hexString
 
 // Function to write bytes to serial port
 void writeToSerial(int serial_port, const std::vector<uint8_t>& bytes) {
-    while (true) { // Replace with a condition or a control variable for actual use
+    while (keepRunning) {
         if (!bytes.empty()) {
             int num_bytes = write(serial_port, bytes.data(), bytes.size());
 
@@ -149,6 +172,8 @@ void writeToSerial(int serial_port, const std::vector<uint8_t>& bytes) {
 }
 
 int main() {
+
+    std::signal(SIGINT, signalHandler);
 
     try {
         // Set up our locale. If this vomits, install `locales-all`
@@ -183,9 +208,14 @@ int main() {
     info("window2 test: {}", window2->toJson());
 
 
-    creatures::MQTTClient mqtt = creatures::MQTTClient("10.3.2.5", "1883");
+    mqttClient = new creatures::MQTTClient("10.3.2.5", "1883");
 
-    mqtt.subscribe("anderson-mqtt/window1/command", MQTT_NS::qos::exactly_once);
+    mqttClient->addWindow(window1);
+    mqttClient->addWindow(window2);
+
+    mqttClient->start();
+
+    mqttClient->subscribe("anderson-mqtt/window1/command", MQTT_NS::qos::exactly_once);
 
 
     // Open the serial port

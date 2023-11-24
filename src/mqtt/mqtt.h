@@ -6,6 +6,9 @@
 #define ANDERSEN_MQTT_MQTT_H
 
 #include <string>
+#include <thread>
+
+#include "window/window.h"
 
 #include <mqtt_client_cpp.hpp>
 
@@ -20,6 +23,11 @@ namespace creatures {
     public:
         MQTTClient(std::string host, std::string port);
         ~MQTTClient() = default;
+
+        void start();
+        void stop();
+
+        void addWindow(std::shared_ptr<Window> window);
 
         bool subscribe(std::string topic, MQTT_NS::qos qos);
 
@@ -39,6 +47,9 @@ namespace creatures {
         bool connected;
 
 
+        // Keep track of our windows
+        std::vector<std::shared_ptr<Window>> windows;
+
         boost::asio::io_context ioc;
         std::string host;
         std::string port;
@@ -48,6 +59,8 @@ namespace creatures {
 
         packet_id_t pid_sub1;
         packet_id_t pid_sub2;
+
+        std::thread ioThread;
 
     };
 

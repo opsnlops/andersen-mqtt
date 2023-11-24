@@ -3,6 +3,7 @@
 //
 
 #include <sstream>
+#include <boost/asio/signal_set.hpp>
 
 #include <mqtt_client_cpp.hpp>
 #include <mqtt/setup_log.hpp>
@@ -41,10 +42,37 @@ namespace creatures {
                                               std::placeholders::_3,
                                               std::placeholders::_4));
 
-        // Bind the member function for the close handler
-        client->connect();
-        ioc.run();
+    }
 
+    void MQTTClient::start() {
+
+        info("starting the MQTT worker");
+
+
+        debug("connecting");
+        client->connect();
+
+        debug("starting the ioc");
+        this->ioThread = std::thread([this] { ioc.run(); });
+
+    }
+
+    void MQTTClient::stop() {
+        debug("stopping the ioc");
+        ioc.stop();
+
+        debug("waiting for the ioc thread to finish");
+        if (ioThread.joinable()) {
+            ioThread.join();
+            debug("ioThread joined!");
+        }
+
+        info("MQTT Client stopped");
+    }
+
+    void MQTTClient::addWindow(std::shared_ptr<Window> window) {
+        info("adding window {} to MQTT client", window->getName());
+        windows.push_back(window);
     }
 
     bool MQTTClient::subscribe(std::string topic, MQTT_NS::qos qos) {
@@ -65,6 +93,12 @@ namespace creatures {
               sp, MQTT_NS::connect_return_code_to_str(connack_return_code));
 
         this->connected = true;
+
+        // Once we're connected (re)register our windows
+        info("publishing all windows to MQTT");
+        for (const auto& window : windows) {
+            client->publish("andersen-mqtt/windows/" + window->getName(), window->toJson(), MQTT_NS::qos::at_most_once);
+        }
 
         return true;
 
