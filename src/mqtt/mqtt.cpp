@@ -2,7 +2,10 @@
 // Created by @opsnlops on 11/22/23.
 //
 
+#include <sstream>
+
 #include <mqtt_client_cpp.hpp>
+#include <mqtt/setup_log.hpp>
 
 #include "namespace-stuffs.h"
 
@@ -18,6 +21,8 @@ namespace creatures {
         this->host = host;
         this->port = port;
 
+        this->connected = false;
+
         // Create the client
         client = mqtt::make_sync_client(this->ioc, this->host, this->port);
 
@@ -27,26 +32,77 @@ namespace creatures {
 
         // Bind the member function for the connack handler
         client->set_connack_handler(std::bind(&MQTTClient::on_connack, this, std::placeholders::_1, std::placeholders::_2));
+        client->set_close_handler(std::bind(&MQTTClient::on_close, this));
+        client->set_error_handler(std::bind(&MQTTClient::on_error, this, std::placeholders::_1));
+        client->set_suback_handler(std::bind(&MQTTClient::on_suback, this, std::placeholders::_1, std::placeholders::_2));
+        client->set_publish_handler(std::bind(&MQTTClient::on_publish, this,
+                                              std::placeholders::_1,
+                                              std::placeholders::_2,
+                                              std::placeholders::_3,
+                                              std::placeholders::_4));
 
+        // Bind the member function for the close handler
         client->connect();
         ioc.run();
 
     }
 
+    bool MQTTClient::subscribe(std::string topic, MQTT_NS::qos qos) {
+
+        if(connected) {
+            info("subscribing to topic {}", topic);
+            client->subscribe(topic, qos);
+            return true;
+        }
+
+        error("not subscribing since we're not connected");
+        return false;
+    }
+
     bool MQTTClient::on_connack(bool sp, mqtt::connect_return_code connack_return_code) {
 
-        debug("on_connack called! session present: {}, connack_return_code: {}", sp, mqtt::connect_return_code_to_str(connack_return_code));
+        debug("connection acknowledged! session present: {}, connect return code: {}",
+              sp, MQTT_NS::connect_return_code_to_str(connack_return_code));
 
-        if (connack_return_code == MQTT_NS::connect_return_code::accepted) {
-            debug("return code was accepted");
-            pid_sub1 = client->subscribe("mqtt_client_cpp/topic1", MQTT_NS::qos::at_most_once);
-            pid_sub2 = client->subscribe(
-                    std::vector<std::tuple<MQTT_NS::string_view, MQTT_NS::subscribe_options>>{
-                            {"mqtt_client_cpp/topic2_1", MQTT_NS::qos::at_least_once},
-                            {"mqtt_client_cpp/topic2_2", MQTT_NS::qos::exactly_once}
-                    }
-            );
+        this->connected = true;
+
+        return true;
+
+    }
+
+    void MQTTClient::on_close() {
+
+        this->connected = false;
+        info("MQTT connection closed");
+    }
+
+    void MQTTClient::on_error(MQTT_NS::error_code ec) {
+        error("MQTT error: {}", ec.message());
+    }
+
+    bool MQTTClient::on_suback(packet_id_t packet_id, std::vector<MQTT_NS::suback_return_code> results) {
+
+        for (auto const& e : results) {
+            debug("[client] subscribe packet_id: {}, result: {}", packet_id, MQTT_NS::suback_return_code_to_str(e));
         }
+
+        return true;
+
+    }
+
+    bool MQTTClient::on_publish(MQTT_NS::optional<packet_id_t> packet_id, MQTT_NS::publish_options pubopts,
+                                MQTT_NS::buffer topic_name, MQTT_NS::buffer contents) {
+
+        /*
+         * This isn't my normal style, but the MQTT library makes heavy use of the stream operators. That's fine,
+         * that's how you should do it, but that's why this looks a bit different than normal.
+         */
+        std::ostringstream oss;
+        oss << "publish received! packet_id: " << *packet_id << ", topic: " << topic_name
+            << ", dup: " << pubopts.get_dup() << ", qos: " << pubopts.get_qos() << ", retain: " << pubopts.get_retain();
+
+        debug("publish received! {}", oss.str());
+
         return true;
     }
 

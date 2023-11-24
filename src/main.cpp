@@ -17,6 +17,7 @@
 #include "namespace-stuffs.h"
 
 #include "mqtt/mqtt.h"
+#include "mqtt/log_wrapper.h"
 
 std::atomic<bool> keepRunning(true);
 
@@ -157,7 +158,14 @@ int main() {
     // Console logger
     spdlog::set_level(spdlog::level::trace);
 
+    // Set up our boost -> spdlog wrapper
+    init_boost_logging();
+    MQTT_NS::setup_log();
+
     creatures::MQTTClient mqtt = creatures::MQTTClient("10.3.2.5", "1883");
+
+    mqtt.subscribe("anderson-mqtt/window1/command", MQTT_NS::qos::exactly_once);
+
 
     // Open the serial port
     debug("opening serial port");

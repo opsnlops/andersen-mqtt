@@ -10,7 +10,7 @@ set(FETCHCONTENT_QUIET OFF)
 find_package(PkgConfig REQUIRED)
 
 # Find Boost
-find_package(Boost REQUIRED COMPONENTS system)
+find_package(Boost REQUIRED COMPONENTS system log)
 
 # fmt
 FetchContent_Declare(
@@ -32,6 +32,8 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(spdlog)
 
 
+set(MQTT_STD_VARIANT 1)
+set(MQTT_USE_LOG 1)
 FetchContent_Declare(
         mqtt_cpp
         GIT_REPOSITORY https://github.com/redboltz/mqtt_cpp.git
@@ -54,6 +56,8 @@ add_executable(andersen_mqtt
         src/mqtt/mqtt.cpp
         src/mqtt/mqtt.h
         src/namespace-stuffs.h
+        src/mqtt/log_wrapper.cpp
+        src/mqtt/log_wrapper.h
 )
 
 target_include_directories(andersen_mqtt PRIVATE ${MQTT_CPP_INCLUDE})
@@ -63,4 +67,5 @@ target_link_libraries(andersen_mqtt
         fmt::fmt
         spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32>
         Boost::system
+        Boost::log
 )
