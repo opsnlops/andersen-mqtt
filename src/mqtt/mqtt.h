@@ -13,6 +13,13 @@
 #include <mqtt_client_cpp.hpp>
 
 
+#define MQTT_USE_LOG 1
+#define MQTT_USE_STR_CHECK 1
+#define MQTT_STD_OPTIONAL 1
+#define MQTT_STD_VARIANT 1
+#define MQTT_STD_STRING_VIEW 1
+
+
 
 namespace creatures {
 

@@ -137,6 +137,8 @@ void readFromSerial(int serial_port) {
         // Sleep for a bit to avoid hogging the CPU
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+
+    info("serial reader stopped");
 }
 
 // Function to convert hex strings to bytes
@@ -169,6 +171,8 @@ void writeToSerial(int serial_port, const std::vector<uint8_t>& bytes) {
         // Write every 2 seconds as an example
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
+
+    info("serial writer stopped");
 }
 
 int main() {
@@ -200,22 +204,26 @@ int main() {
 
     auto window1 = std::make_shared<creatures::Window>("window1", 1);
     auto window2 = std::make_shared<creatures::Window>("window2", 2);
+    auto window3 = std::make_shared<creatures::Window>("window3", 3);
+    auto window4 = std::make_shared<creatures::Window>("window4", 4);
+
 
     window1->setStatus(0x0D);
-    window2->setStatus(0x0C);
+    window2->setStatus(0x0D);
+    window3->setStatus(0x0D);
+    window4->setStatus(0x0C);
 
     info("window1 test: {}", window1->toJson());
-    info("window2 test: {}", window2->toJson());
+    info("window4 test: {}", window4->toJson());
 
 
     mqttClient = new creatures::MQTTClient("10.3.2.5", "1883");
-
     mqttClient->addWindow(window1);
     mqttClient->addWindow(window2);
+    mqttClient->addWindow(window3);
+    mqttClient->addWindow(window4);
 
     mqttClient->start();
-
-    mqttClient->subscribe("anderson-mqtt/window1/command", MQTT_NS::qos::exactly_once);
 
 
     // Open the serial port
@@ -235,14 +243,18 @@ int main() {
     // Convert hex strings to a byte vector
     info("Asking for window status...");
     std::vector<uint8_t> bytesToWrite = hexStringsToBytes(hexStrings);
-    writeToSerial(serial_port, bytesToWrite);
+    std::thread writeThread(writeToSerial, serial_port, bytesToWrite);
 
     // Do something else or just wait here
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+    std::this_thread::sleep_for(std::chrono::seconds(30));
     keepRunning = false; // Tell the threads to finish up
 
     // Make sure to join your threads
+    if (mqttClient) {
+        mqttClient->stop();
+    }
     readThread.join();
+    writeThread.join();
 
     close(serial_port);
 
