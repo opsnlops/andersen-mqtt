@@ -30,6 +30,33 @@
 creatures::MQTTClient* mqttClient = nullptr;
 std::atomic<bool> keepRunning(true);
 
+/**
+ * The programmer's manual says to skip the first byte in the checksum
+ *
+ * @param message
+ * @return
+ */
+uint8_t calculateChecksum(const std::vector<uint8_t>& message) {
+    uint8_t checksum = 0;
+    // Start from the second byte (index 1)
+    for (size_t i = 1; i < message.size(); ++i) {
+        checksum += message[i]; // Summing each byte
+    }
+    return checksum;
+}
+
+bool validateChecksum(const std::vector<uint8_t>& message) {
+    if (message.size() < 2) {
+        return false; // Not enough data to validate
+    }
+
+    uint8_t expectedChecksum = calculateChecksum(message);
+    uint8_t actualChecksum = message.back(); // Last byte is the checksum
+
+    return expectedChecksum == actualChecksum;
+}
+
+
 extern "C" void signalHandler(int signalNumber) {
     if (signalNumber == SIGINT) {
 
@@ -175,6 +202,8 @@ void writeToSerial(int serial_port, const std::vector<uint8_t>& bytes) {
     info("serial writer stopped");
 }
 
+
+
 int main() {
 
     std::signal(SIGINT, signalHandler);
@@ -208,7 +237,7 @@ int main() {
     auto window4 = std::make_shared<creatures::Window>("window4", 4);
 
 
-    window1->setStatus(0x0D);
+    window1->setStatus(0x08);
     window2->setStatus(0x0D);
     window3->setStatus(0x0D);
     window4->setStatus(0x0C);
@@ -238,12 +267,25 @@ int main() {
     std::thread readThread(readFromSerial, serial_port);
 
     // Define a vector of hex string values
-    std::vector<std::string> hexStrings = {"FF", "01", "05", "5C", "62"};
+    //std::vector<std::string> hexStrings = {SRC_CONTROLLER, DST_PANEL_1, WINDOW_ALL, CMD_STATUS_WITHOUT_POLL, "0x62"};
+
+    std::vector<uint8_t> pollAllWindows = {SRC_CONTROLLER, DST_PANEL_1, WINDOW_ALL, CMD_STATUS_WITHOUT_POLL};
+    auto checksum = calculateChecksum(pollAllWindows);
+    pollAllWindows.push_back(checksum);
+
+    std::cout << "Checksum: 0x" << std::hex << static_cast<int>(checksum) << std::endl;
+
+
+    // Attempt to open a window
+    //std::vector<uint8_t> openWindowOne = {SRC_CONTROLLER, DST_PANEL_1, WINDOW_ALL, CMD_CLOSE};
+    //checksum = calculateChecksum(openWindowOne);
+    //openWindowOne.push_back(checksum);
+    //writeToSerial(serial_port, openWindowOne);
 
     // Convert hex strings to a byte vector
     info("Asking for window status...");
-    std::vector<uint8_t> bytesToWrite = hexStringsToBytes(hexStrings);
-    std::thread writeThread(writeToSerial, serial_port, bytesToWrite);
+    ///std::vector<uint8_t> bytesToWrite = hexStringsToBytes(hexStrings);
+    std::thread writeThread(writeToSerial, serial_port, pollAllWindows);
 
     // Do something else or just wait here
     std::this_thread::sleep_for(std::chrono::seconds(30));

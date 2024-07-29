@@ -40,7 +40,7 @@ namespace creatures {
         json j;
         j["name"] = this->name;
         j["number"] = this->number;
-        j["open"] = this->open;
+        j["state"] = this->open;
         j["movementObstructed"] = this->movementObstructed;
         j["screenMissing"] = this->screenMissing;
         j["rfHeard"] = this->rfHeard;
