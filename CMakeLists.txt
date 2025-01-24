@@ -16,7 +16,7 @@ find_package(Boost REQUIRED COMPONENTS system log)
 FetchContent_Declare(
         fmt
         GIT_REPOSITORY https://github.com/fmtlib/fmt
-        GIT_TAG 10.1.1
+        GIT_TAG 11.1.2
 )
 FetchContent_MakeAvailable(fmt)
 set(FMT_HEADER_ONLY ON)
@@ -27,7 +27,7 @@ set(FMT_LOCALE ON)
 FetchContent_Declare(
         spdlog
         GIT_REPOSITORY https://github.com/gabime/spdlog
-        GIT_TAG v1.12.0
+        GIT_TAG v1.15.0
 )
 FetchContent_MakeAvailable(spdlog)
 
