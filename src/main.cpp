@@ -23,7 +23,7 @@
 #include "mqtt/log_wrapper.h"
 #include "window/window.h"
 
-
+#include "blockingconcurrentqueue.h"
 
 
 // Old school pointer so the signal handler knows what to do
