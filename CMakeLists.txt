@@ -47,6 +47,9 @@ if(NOT mqtt_cpp_POPULATED)
 endif()
 
 
+# Set up a concurrent queue
+set(MOODYCAMEL_DIR "${CMAKE_SOURCE_DIR}/lib/moodycamel")
+
 FetchContent_Declare(
         json
         URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz)
@@ -54,6 +57,7 @@ FetchContent_MakeAvailable(json)
 
 include_directories(
         src/
+        ${MOODYCAMEL_DIR}
 )
 
 add_executable(andersen_mqtt
