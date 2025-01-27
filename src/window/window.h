@@ -5,6 +5,8 @@
 #ifndef ANDERSEN_MQTT_WINDOW_H
 #define ANDERSEN_MQTT_WINDOW_H
 
+#include <chrono>
+
 #define SRC_CONTROLLER              0xFF
 #define DST_PANEL_1                 0x01
 #define DST_PANEL_2                 0x02
@@ -46,7 +48,7 @@ namespace creatures {
         void setStatus(uint8_t statusByte);
 
 
-        std::string getName() const;
+        [[nodiscard]] std::string getName() const;
         uint8_t getNumber() const;
         bool isOpen() const;
         bool isMovementObstructed() const;
@@ -57,12 +59,15 @@ namespace creatures {
 
         std::string toJson() const;
 
+        static std::vector<std::string> bytesToHexStrings(const uint8_t* bytes, size_t size);
+        static std::vector<std::string> bytesToHexStrings(const std::vector<uint8_t>& bytes);
+        static uint8_t calculateChecksum(const std::vector<uint8_t>& message);
+        static bool validateChecksum(const std::vector<uint8_t> &message);
+
     private:
 
         std::string name;
         std::uint8_t number;
-
-
 
         bool open;
         bool movementObstructed;
@@ -70,7 +75,9 @@ namespace creatures {
         bool rfHeard;
         bool rainSensed;
         bool rainOverrideActive;
+        std::chrono::system_clock::time_point lastUpdated;
 
+        [[nodiscard]] std::string timePointToISO8601(const std::chrono::system_clock::time_point& tp) const;
 
     };
 

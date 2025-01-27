@@ -87,18 +87,27 @@ namespace creatures {
         return false;
     }
 
+    bool MQTTClient::publishWindows() {
+
+            if(connected) {
+                info("publishing all windows to MQTT");
+                for (const auto& window : windows) {
+                    client->publish("andersen-mqtt/windows/" + window->getName(), window->toJson(), MQTT_NS::qos::at_most_once);
+                }
+                return true;
+            }
+
+            error("not publishing since we're not connected");
+            return false;
+    }
+
+
     bool MQTTClient::on_connack(bool sp, mqtt::connect_return_code connack_return_code) {
 
         debug("connection acknowledged! session present: {}, connect return code: {}",
               sp, MQTT_NS::connect_return_code_to_str(connack_return_code));
 
-        this->connected = true;
-
-        // Once we're connected (re)register our windows
-        info("publishing all windows to MQTT");
-        for (const auto& window : windows) {
-            client->publish("andersen-mqtt/windows/" + window->getName(), window->toJson(), MQTT_NS::qos::at_most_once);
-        }
+        connected = true;
 
         return true;
 

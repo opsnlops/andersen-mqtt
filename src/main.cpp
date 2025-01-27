@@ -5,9 +5,7 @@
 #include <thread>
 #include <atomic>
 #include <cstring>
-#include <fcntl.h>
 #include <unistd.h>
-#include <termios.h>
 #include <string>
 #include <iomanip>
 #include <iostream>
@@ -21,6 +19,7 @@
 
 #include "mqtt/mqtt.h"
 #include "mqtt/log_wrapper.h"
+#include "socket/socket.h"
 #include "window/window.h"
 
 #include "blockingconcurrentqueue.h"
@@ -30,32 +29,14 @@
 creatures::MQTTClient* mqttClient = nullptr;
 std::atomic<bool> keepRunning(true);
 
-/**
- * The programmer's manual says to skip the first byte in the checksum
- *
- * @param message
- * @return
- */
-uint8_t calculateChecksum(const std::vector<uint8_t>& message) {
-    uint8_t checksum = 0;
-    // Start from the second byte (index 1)
-    for (size_t i = 1; i < message.size(); ++i) {
-        checksum += message[i]; // Summing each byte
-    }
-    return checksum;
-}
+std::shared_ptr<moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>>> outgoingSocketMessages;
+std::shared_ptr<moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>>> incomingSocketMessages;
 
-bool validateChecksum(const std::vector<uint8_t>& message) {
-    if (message.size() < 2) {
-        return false; // Not enough data to validate
-    }
 
-    uint8_t expectedChecksum = calculateChecksum(message);
-    uint8_t actualChecksum = message.back(); // Last byte is the checksum
-
-    return expectedChecksum == actualChecksum;
-}
-
+std::shared_ptr<creatures::Window> window1;
+std::shared_ptr<creatures::Window> window2;
+std::shared_ptr<creatures::Window> window3;
+std::shared_ptr<creatures::Window> window4;
 
 extern "C" void signalHandler(int signalNumber) {
     if (signalNumber == SIGINT) {
@@ -70,138 +51,199 @@ extern "C" void signalHandler(int signalNumber) {
             mqttClient->stop();
         }
 
-
     }
 }
 
-
-void setupSerialPort(int serial_port) {
-    struct termios tty;
-
-    debug("configuring the serial port to 9600 N81");
-
-    // Read in existing settings, and handle any error
-    if(tcgetattr(serial_port, &tty) != 0) {
-        error("Error {} from tcgetattr: {}", errno, strerror(errno));
+// Helper to join strings for logging
+std::string joinStrings(const std::vector<std::string>& strings, const std::string& delimiter = ", ") {
+    std::ostringstream oss;
+    for (size_t i = 0; i < strings.size(); ++i) {
+        oss << strings[i];
+        if (i < strings.size() - 1) {
+            oss << delimiter;
+        }
     }
-
-    // Set Baud Rate to 9600
-    cfsetospeed(&tty, B9600);
-    cfsetispeed(&tty, B9600);
-
-    // 8 bits per byte (most common)
-    tty.c_cflag &= ~PARENB; // No parity bit
-    tty.c_cflag &= ~CSTOPB; // Only one stop bit
-    tty.c_cflag &= ~CSIZE;  // Clear all the size bits
-    tty.c_cflag |= CS8;     // 8 bits per byte
-
-    tty.c_cflag &= ~CRTSCTS;       // No hardware flow control
-    tty.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines (CLOCAL = 1)
-
-    tty.c_lflag &= ~ICANON;
-    tty.c_lflag &= ~ECHO;    // Disable echo
-    tty.c_lflag &= ~ECHOE;   // Disable erasure
-    tty.c_lflag &= ~ECHONL;  // Disable new-line echo
-    tty.c_lflag &= ~ISIG;    // Disable interpretation of INTR, QUIT and SUSP
-    tty.c_iflag &= ~(IXON | IXOFF | IXANY); // Turn off software flow control
-    tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL); // Disable any special handling of received bytes
-
-    tty.c_oflag &= ~OPOST; // Prevent special interpretation of output bytes (e.g., newline chars)
-    tty.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
-
-    // VMIN and VTIME are used to control block timing. Here we set VMIN to 0 and VTIME to 1,
-    // making read non-blocking. The read function will return immediately if there is nothing to read.
-    tty.c_cc[VMIN] = 0;
-    tty.c_cc[VTIME] = 1;
-
-    // Save tty settings, also checking for error
-    if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
-        error("Error {} from tcgetattr: {}", errno, strerror(errno));
-    }
-
-    debug("serial port configured");
+    return oss.str();
 }
 
-
-std::vector<std::string> bytesToHexStrings(const uint8_t* bytes, size_t size) {
-    std::vector<std::string> hexStrings;
-    hexStrings.reserve(size); // Reserve space for efficiency
-
-    for (size_t i = 0; i < size; ++i) {
-        std::stringstream hexStream;
-        hexStream << std::hex << std::setw(2) << std::setfill('0') << std::uppercase << static_cast<int>(bytes[i]);
-        hexStrings.push_back(hexStream.str());
-    }
-
-    return hexStrings;
-}
-
-void readFromSerial(int serial_port) {
-    uint8_t read_buf[256];
+void reader_thread(int socket_fd) {
+    std::vector<uint8_t> buffer; // Persistent buffer for accumulating bytes
     while (keepRunning) {
-        memset(&read_buf, '\0', sizeof(read_buf));
-        int num_bytes = read(serial_port, &read_buf, sizeof(read_buf));
+        std::vector<uint8_t> tempBuffer(1024); // Temporary buffer for reading
+        ssize_t bytes_received = recv(socket_fd, tempBuffer.data(), tempBuffer.size(), 0);
 
-        //trace("num_bytes is {}", num_bytes);
-        if (num_bytes < 0) {
-            error("Error reading: {}", strerror(errno));
-        } else {
-            if(num_bytes > 0) {
-                debug("Read {} bytes", num_bytes);
-                std::vector<std::string> byteString = bytesToHexStrings(read_buf, num_bytes);
+        debug("Received {} bytes", bytes_received);
 
-                std::cout << '[';
-                for (size_t i = 0; i < byteString.size(); ++i) {
-                    std::cout << "0x" << byteString[i];
-                    if (i < byteString.size() - 1) {
-                        std::cout << ", ";
-                    }
+        if (bytes_received <= 0) {
+            std::cerr << "Connection closed or error occurred\n";
+            error("Connection closed or error occurred");
+            keepRunning = false;
+            break;
+        }
+
+        // Append newly received bytes to the persistent buffer
+        buffer.insert(buffer.end(), tempBuffer.begin(), tempBuffer.begin() + bytes_received);
+
+        // Process complete messages
+        while (!buffer.empty()) {
+            // Synchronize to the header byte (0xFF)
+            auto it = std::find(buffer.begin(), buffer.end(), 0xFF);
+            if (it != buffer.begin()) {
+                if (it == buffer.end()) {
+                    debug("No valid header found. Clearing buffer.");
+                    buffer.clear();
+                    break;
                 }
-                std::cout << ']' << std::endl;
+                debug("Synchronizing buffer. Removing {} invalid bytes.", std::distance(buffer.begin(), it));
+                buffer.erase(buffer.begin(), it); // Remove invalid bytes
             }
-        }
 
-        // Sleep for a bit to avoid hogging the CPU
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+            // Ensure we have enough bytes to determine the message type (at least 3 bytes)
+            if (buffer.size() < 3) {
+                debug("Not enough bytes to determine message type. Waiting for more data...");
+                break;
+            }
 
-    info("serial reader stopped");
-}
+            // Determine the expected message size
+            size_t expectedSize = 0;
+            uint8_t messageType = buffer[2]; // Assuming the third byte is the message type
 
-// Function to convert hex strings to bytes
-std::vector<uint8_t> hexStringsToBytes(const std::vector<std::string>& hexStrings) {
-    std::vector<uint8_t> bytes;
-    for (const auto& hexValue : hexStrings) {
-        unsigned int buffer;
-        std::istringstream hexStream(hexValue);
-
-        hexStream >> std::hex >> buffer;
-        bytes.push_back(static_cast<uint8_t>(buffer));
-    }
-
-    return bytes;
-}
-
-// Function to write bytes to serial port
-void writeToSerial(int serial_port, const std::vector<uint8_t>& bytes) {
-    while (keepRunning) {
-        if (!bytes.empty()) {
-            int num_bytes = write(serial_port, bytes.data(), bytes.size());
-
-            if (num_bytes < 0) {
-                error("Error writing to serial port: {}", strerror(errno));
+            if (messageType == CMD_STATUS_WITHOUT_POLL || messageType == CMD_STATUS_WITH_POLL) { // STATUS message (always all windows)
+                expectedSize = 8; // Always 8 bytes for STATUS with all windows
+                debug("Detected STATUS message for all windows. Expected size: 8 bytes.");
+            } else if (messageType == 0xB1 || messageType == 0x27) { // ACK or BUSY
+                expectedSize = 5;
+                debug("Detected ACK or BUSY message. Expected size: 5 bytes.");
             } else {
-                info("Wrote {} bytes to the serial port", num_bytes);
+                debug("Unknown message type: 0x{:02X}. Discarding header byte.", messageType);
+                buffer.erase(buffer.begin()); // Remove the header and try again
+                continue;
             }
+
+            // If we don't have enough bytes for the full message, wait for more
+            if (buffer.size() < expectedSize) {
+                debug("Not enough bytes yet. Expected {}, but have {}.", expectedSize, buffer.size());
+                break;
+            }
+
+            // Extract the full message
+            std::vector<uint8_t> message(buffer.begin(), buffer.begin() + expectedSize);
+
+            // Debug: Log the full message being processed
+            debug("Processing full message: [{}]", joinStrings(creatures::Window::bytesToHexStrings(message)));
+
+            // Create a slice of the message that excludes the checksum byte
+            std::vector<uint8_t> messageWithoutChecksum(message.begin(), message.end());
+
+            // Validate the checksum
+            if (!creatures::Window::validateChecksum(messageWithoutChecksum)) {
+                debug("Checksum validation failed. Message: [{}], Calculated checksum: 0x{:x}, Provided checksum: 0x{:x}",
+                      joinStrings(creatures::Window::bytesToHexStrings(messageWithoutChecksum)),
+                      creatures::Window::calculateChecksum(messageWithoutChecksum),
+                      message.back());
+                std::cerr << "Invalid checksum received. Discarding message.\n";
+                buffer.erase(buffer.begin(), buffer.begin() + expectedSize); // Remove processed bytes
+                continue;
+            }
+
+            // Log the valid message
+            debug("Valid message received: [{}]", joinStrings(creatures::Window::bytesToHexStrings(message)));
+
+            // Enqueue the valid message
+            incomingSocketMessages->enqueue(std::move(message));
+
+            // Remove the processed message from the buffer
+            buffer.erase(buffer.begin(), buffer.begin() + expectedSize);
         }
-
-        // Write every 2 seconds as an example
-        std::this_thread::sleep_for(std::chrono::seconds(5));
     }
-
-    info("serial writer stopped");
 }
 
+void writer_thread(int socket_fd) {
+    while (keepRunning) {
+        std::vector<uint8_t> message;
+        if (outgoingSocketMessages->wait_dequeue_timed(message, std::chrono::seconds(1))) {
+            if(!message.empty()) {
+                debug("Sending message of size {}", message.size());
+                send(socket_fd, message.data(), message.size(), 0); // Send binary data
+            }
+            else
+                debug("No message to send");
+        }
+    }
+}
+
+void process_message_thread() {
+    while (keepRunning) {
+        std::vector<uint8_t> message;
+
+        // Block until a new message is available in the queue
+        incomingSocketMessages->wait_dequeue(message);
+
+        // Log the received message
+        debug("Processing message: [{}]", joinStrings(creatures::Window::bytesToHexStrings(message)));
+
+        // Ensure the message has at least 3 bytes (enough to determine the type)
+        if (message.size() < 3) {
+            error("Message too short: {} bytes. Ignoring.", message.size());
+            continue;
+        }
+
+        // Determine the message type
+        uint8_t messageType = message[2];
+
+        switch (messageType) {
+            case 0x5C: { // STATUS message
+                debug("Detected STATUS message.");
+
+                // Ensure the message is the correct size for a STATUS message
+                if (message.size() != 8) {
+                    error("Invalid STATUS message size: {}. Expected 8 bytes.", message.size());
+                    break;
+                }
+
+                // Extract the window statuses
+                uint8_t window1Status = message[3];
+                uint8_t window2Status = message[4];
+                uint8_t window3Status = message[5];
+                uint8_t window4Status = message[6];
+
+                // Update the window statuses
+                window1->setStatus(window1Status);
+                window2->setStatus(window2Status);
+                window3->setStatus(window3Status);
+                window4->setStatus(window4Status);
+
+                // Log the updated statuses
+                debug("Updated window statuses");
+                debug("Window 1: {}", window1->toJson());
+                debug("Window 2: {}", window2->toJson());
+                debug("Window 3: {}", window3->toJson());
+                debug("Window 4: {}", window4->toJson());
+
+                // Publish this update on MQTT
+                mqttClient->publishWindows();
+
+                break;
+            }
+
+            case 0xB1: { // ACK message
+                debug("Detected ACK message.");
+                // Handle ACK-specific processing here
+                break;
+            }
+
+            case 0x27: { // BUSY message
+                debug("Detected BUSY message.");
+                // Handle BUSY-specific processing here
+                break;
+            }
+
+            default:
+                debug("Unknown message type: 0x{:02X}. Ignoring message.", messageType);
+                break;
+        }
+    }
+}
 
 
 int main() {
@@ -222,6 +264,7 @@ int main() {
 
     info("Welcome to Andersen to MQTT! 🪟");
 
+
     // Leave some version info to be found
     debug("spdlog version {}.{}.{}", SPDLOG_VER_MAJOR, SPDLOG_VER_MINOR, SPDLOG_VER_PATCH);
     debug("fmt version {}", FMT_VERSION);
@@ -231,19 +274,15 @@ int main() {
     init_boost_logging();
     MQTT_NS::setup_log();
 
-    auto window1 = std::make_shared<creatures::Window>("window1", 1);
-    auto window2 = std::make_shared<creatures::Window>("window2", 2);
-    auto window3 = std::make_shared<creatures::Window>("window3", 3);
-    auto window4 = std::make_shared<creatures::Window>("window4", 4);
+    // Make our queues
+    outgoingSocketMessages = std::make_shared<moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>>>();
+    incomingSocketMessages = std::make_shared<moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>>>();
 
-
-    window1->setStatus(0x08);
-    window2->setStatus(0x0D);
-    window3->setStatus(0x0D);
-    window4->setStatus(0x0C);
-
-    info("window1 test: {}", window1->toJson());
-    info("window4 test: {}", window4->toJson());
+    // Make the windows
+    window1 = std::make_shared<creatures::Window>("window1", 1);
+    window2 = std::make_shared<creatures::Window>("window2", 2);
+    window3 = std::make_shared<creatures::Window>("window3", 3);
+    window4 = std::make_shared<creatures::Window>("window4", 4);
 
 
     mqttClient = new creatures::MQTTClient("10.3.2.5", "1883");
@@ -255,25 +294,24 @@ int main() {
     mqttClient->start();
 
 
-    // Open the serial port
-    debug("opening serial port");
-    int serial_port = open("/dev/tty.usbserial-B000PDRX", O_RDWR | O_NONBLOCK);
-    info("port is open, fd {}", serial_port);
+    const char* host = "10.3.2.222";
+    int port = 6000;
+
+    int socket_fd = connect_to_server(host, port);
+    if (socket_fd < 0) {
+        return 1;
+    }
 
 
-    setupSerialPort(serial_port);
 
-    // Create the read thread
-    std::thread readThread(readFromSerial, serial_port);
+    std::thread reader(reader_thread, socket_fd);
+    std::thread writer(writer_thread, socket_fd);
+    std::thread processor(process_message_thread);
+
 
     // Define a vector of hex string values
     //std::vector<std::string> hexStrings = {SRC_CONTROLLER, DST_PANEL_1, WINDOW_ALL, CMD_STATUS_WITHOUT_POLL, "0x62"};
 
-    std::vector<uint8_t> pollAllWindows = {SRC_CONTROLLER, DST_PANEL_1, WINDOW_ALL, CMD_STATUS_WITHOUT_POLL};
-    auto checksum = calculateChecksum(pollAllWindows);
-    pollAllWindows.push_back(checksum);
-
-    std::cout << "Checksum: 0x" << std::hex << static_cast<int>(checksum) << std::endl;
 
 
     // Attempt to open a window
@@ -282,23 +320,32 @@ int main() {
     //openWindowOne.push_back(checksum);
     //writeToSerial(serial_port, openWindowOne);
 
-    // Convert hex strings to a byte vector
-    info("Asking for window status...");
-    ///std::vector<uint8_t> bytesToWrite = hexStringsToBytes(hexStrings);
-    std::thread writeThread(writeToSerial, serial_port, pollAllWindows);
 
     // Do something else or just wait here
-    std::this_thread::sleep_for(std::chrono::seconds(30));
+    int count = 0;
+    while(keepRunning /*&& count++ < 25*/) {
+        debug("Polling all windows...");
+        std::vector<uint8_t> event = {SRC_CONTROLLER, DST_PANEL_1, WINDOW_ALL, CMD_STATUS_WITHOUT_POLL};
+        auto ck = creatures::Window::calculateChecksum(event);
+        event.push_back(ck);
+        outgoingSocketMessages->enqueue(std::move(event));
+
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(5));
     keepRunning = false; // Tell the threads to finish up
+
+    // Signal to the writer to stop
+    outgoingSocketMessages->enqueue({});
 
     // Make sure to join your threads
     if (mqttClient) {
         mqttClient->stop();
     }
-    readThread.join();
-    writeThread.join();
+    reader.join();
+    writer.join();
 
-    close(serial_port);
+    close(socket_fd);
 
     return 0;
 }

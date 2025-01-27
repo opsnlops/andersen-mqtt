@@ -69,6 +69,10 @@ add_executable(andersen_mqtt
         src/mqtt/log_wrapper.h
         src/window/window.h
         src/window/window.cpp
+        src/serial/serial.cpp
+        src/serial/serial.h
+        src/socket/socket.cpp
+        src/socket/socket.h
 )
 
 target_include_directories(andersen_mqtt PRIVATE ${MQTT_CPP_INCLUDE})

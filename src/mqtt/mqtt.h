@@ -48,6 +48,7 @@ namespace creatures {
                         MQTT_NS::buffer contents);
 
 
+        bool publishWindows();
 
     private:
 
