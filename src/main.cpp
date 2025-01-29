@@ -173,6 +173,10 @@ void writer_thread(int socket_fd) {
 }
 
 void process_message_thread() {
+
+    // Force a publish the first time around
+    bool firstRun = true;
+
     while (keepRunning) {
         std::vector<uint8_t> message;
 
@@ -221,8 +225,8 @@ void process_message_thread() {
                 debug("Window 4: {}", window4->toJson());
 
                 // Publish this update on MQTT
-                mqttClient->publishWindows();
-
+                mqttClient->publishWindows(firstRun);
+                firstRun = false;
                 break;
             }
 
@@ -319,6 +323,7 @@ int main() {
     //checksum = calculateChecksum(openWindowOne);
     //openWindowOne.push_back(checksum);
     //writeToSerial(serial_port, openWindowOne);
+
 
 
     // Do something else or just wait here

@@ -49,6 +49,7 @@ namespace creatures {
 
 
         bool publishWindows();
+        bool publishWindows(bool forcePublish);
 
     private:
 

@@ -91,6 +91,10 @@ namespace creatures {
     }
 
     bool MQTTClient::publishWindows() {
+        return publishWindows(false);
+    }
+
+    bool MQTTClient::publishWindows(bool forcePublish) {
 
         if (connected) {
             info("publishing all windows to MQTT");
@@ -98,31 +102,31 @@ namespace creatures {
 
                 std::string prefix = "andersen-mqtt/windows/" + window->getName() + "/";
 
-                if(window->hasOpenUpdated()) {
+                if(window->hasOpenUpdated() || forcePublish) {
                     client->publish(prefix + "open", yesOrNo(window->isOpen()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
                 }
 
-                if(window->hasMovementObstructedUpdated()) {
+                if(window->hasMovementObstructedUpdated() || forcePublish) {
                     client->publish(prefix + "movement_obstructed", yesOrNo(window->isMovementObstructed()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
                 }
 
-                if(window->hasScreenMissingUpdated()) {
+                if(window->hasScreenMissingUpdated() || forcePublish) {
                     client->publish(prefix + "screen_missing", yesOrNo(window->isScreenMissing()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
                 }
 
-                if(window->hasRfHeardUpdated()) {
+                if(window->hasRfHeardUpdated() || forcePublish) {
                     client->publish(prefix + "rf_heard", yesOrNo(window->isRfHeard()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
                 }
 
-                if(window->hasRainSensedUpdated()) {
+                if(window->hasRainSensedUpdated() || forcePublish) {
                     client->publish(prefix + "rain_sensed", yesOrNo(window->isRainSensed()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
                 }
 
-                if(window->hasRainOverrideActiveUpdated()) {
+                if(window->hasRainOverrideActiveUpdated() || forcePublish) {
                     client->publish(prefix + "rain_override_active", yesOrNo(window->isRainOverrideActive()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes );
                 }
 
-                if(window->hasLastPolledUpdated()) {
+                if(window->hasLastPolledUpdated() || forcePublish) {
                     client->publish(prefix + "last_polled", window->getLastPolled(), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
                 }
 
