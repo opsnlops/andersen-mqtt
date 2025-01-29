@@ -33,17 +33,53 @@ namespace creatures {
 
         // Now for the best thing in modern C++, bitsets!
         std::bitset<8> status(statusByte);
-        this->open = status.test(0);
-        this->movementObstructed = status.test(1);
-        this->screenMissing = status.test(2);
-        this->rfHeard = status.test(3);
-        this->rainSensed = status.test(4);
-        this->rainOverrideActive = status.test(5);
+
+        if(open != status.test(0)) {
+            openUpdated = true;
+            open = status.test(0);
+        }
+
+        if(movementObstructed != status.test(1)) {
+            movementObstructedUpdated = true;
+            movementObstructed = status.test(1);
+        }
+
+        if(screenMissing != status.test(2)) {
+            screenMissingUpdated = true;
+            screenMissing = status.test(2);
+        }
+
+        if(rfHeard != status.test(3)) {
+            rfHeardUpdated = true;
+            rfHeard = status.test(3);
+        }
+
+        if(rainSensed != status.test(4)) {
+            rainSensedUpdated = true;
+            rainSensed = status.test(4);
+        }
+
+        if(rainOverrideActive != status.test(5)) {
+            rainOverrideActiveUpdated = true;
+            rainOverrideActive = status.test(5);
+        }
 
         // Update the last updated time
-        this->lastUpdated = std::chrono::system_clock::now();
+        this->lastPolled = std::chrono::system_clock::now();
+        lastPolledUpdated = true;
 
     }
+
+    void Window::resetUpdatedFlags() {
+        openUpdated = false;
+        movementObstructedUpdated = false;
+        screenMissingUpdated = false;
+        rfHeardUpdated = false;
+        rainSensedUpdated = false;
+        rainOverrideActiveUpdated = false;
+        lastPolledUpdated = false;
+    }
+
 
     std::string Window::toJson() const {
         debug("serializing window {} to json", this->number);
@@ -57,7 +93,7 @@ namespace creatures {
         j["rfHeard"] = this->rfHeard;
         j["rainSensed"] = this->rainSensed;
         j["rainOverrideActive"] = this->rainOverrideActive;
-        j["lastUpdated"] = this->timePointToISO8601(this->lastUpdated);
+        j["lastPolled"] = this->timePointToISO8601(this->lastPolled);
         return j.dump();
 
     }

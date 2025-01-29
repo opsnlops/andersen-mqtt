@@ -57,6 +57,19 @@ namespace creatures {
         bool isRainSensed() const;
         bool isRainOverrideActive() const;
 
+        std::string getLastPolled() const { return timePointToISO8601(lastPolled); }
+
+        void resetUpdatedFlags();
+
+        bool hasOpenUpdated() const { return openUpdated; }
+        bool hasMovementObstructedUpdated() const { return movementObstructedUpdated; }
+        bool hasScreenMissingUpdated() const { return screenMissingUpdated; }
+        bool hasRfHeardUpdated() const { return rfHeardUpdated; }
+        bool hasRainSensedUpdated() const { return rainSensedUpdated; }
+        bool hasRainOverrideActiveUpdated() const { return rainOverrideActiveUpdated; }
+        bool hasLastPolledUpdated() const { return lastPolledUpdated; }
+
+        [[nodiscard]]
         std::string toJson() const;
 
         static std::vector<std::string> bytesToHexStrings(const uint8_t* bytes, size_t size);
@@ -75,7 +88,16 @@ namespace creatures {
         bool rfHeard;
         bool rainSensed;
         bool rainOverrideActive;
-        std::chrono::system_clock::time_point lastUpdated;
+        std::chrono::system_clock::time_point lastPolled;
+
+        bool openUpdated = true;
+        bool movementObstructedUpdated = true;
+        bool screenMissingUpdated = true;
+        bool rfHeardUpdated = true;
+        bool rainSensedUpdated = true;
+        bool rainOverrideActiveUpdated = true;
+        bool lastPolledUpdated = true;
+
 
         [[nodiscard]] std::string timePointToISO8601(const std::chrono::system_clock::time_point& tp) const;
 

@@ -54,6 +54,7 @@ namespace creatures {
 
         bool connected;
 
+        static std::string yesOrNo(bool value);
 
         // Keep track of our windows
         std::vector<std::shared_ptr<Window>> windows;

@@ -2,6 +2,7 @@
 // Created by @opsnlops on 11/22/23.
 //
 
+#include <string>
 #include <sstream>
 #include <boost/asio/signal_set.hpp>
 
@@ -32,10 +33,12 @@ namespace creatures {
         client->set_clean_session(true);
 
         // Bind the member function for the connack handler
-        client->set_connack_handler(std::bind(&MQTTClient::on_connack, this, std::placeholders::_1, std::placeholders::_2));
+        client->set_connack_handler(
+                std::bind(&MQTTClient::on_connack, this, std::placeholders::_1, std::placeholders::_2));
         client->set_close_handler(std::bind(&MQTTClient::on_close, this));
         client->set_error_handler(std::bind(&MQTTClient::on_error, this, std::placeholders::_1));
-        client->set_suback_handler(std::bind(&MQTTClient::on_suback, this, std::placeholders::_1, std::placeholders::_2));
+        client->set_suback_handler(
+                std::bind(&MQTTClient::on_suback, this, std::placeholders::_1, std::placeholders::_2));
         client->set_publish_handler(std::bind(&MQTTClient::on_publish, this,
                                               std::placeholders::_1,
                                               std::placeholders::_2,
@@ -77,7 +80,7 @@ namespace creatures {
 
     bool MQTTClient::subscribe(std::string topic, MQTT_NS::qos qos) {
 
-        if(connected) {
+        if (connected) {
             info("subscribing to topic {}", topic);
             client->subscribe(topic, qos);
             return true;
@@ -89,16 +92,53 @@ namespace creatures {
 
     bool MQTTClient::publishWindows() {
 
-            if(connected) {
-                info("publishing all windows to MQTT");
-                for (const auto& window : windows) {
-                    client->publish("andersen-mqtt/windows/" + window->getName(), window->toJson(), MQTT_NS::qos::at_most_once);
-                }
-                return true;
-            }
+        if (connected) {
+            info("publishing all windows to MQTT");
+            for (const auto &window: windows) {
 
-            error("not publishing since we're not connected");
-            return false;
+                std::string prefix = "andersen-mqtt/windows/" + window->getName() + "/";
+
+                if(window->hasOpenUpdated()) {
+                    client->publish(prefix + "open", yesOrNo(window->isOpen()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
+                }
+
+                if(window->hasMovementObstructedUpdated()) {
+                    client->publish(prefix + "movement_obstructed", yesOrNo(window->isMovementObstructed()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
+                }
+
+                if(window->hasScreenMissingUpdated()) {
+                    client->publish(prefix + "screen_missing", yesOrNo(window->isScreenMissing()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
+                }
+
+                if(window->hasRfHeardUpdated()) {
+                    client->publish(prefix + "rf_heard", yesOrNo(window->isRfHeard()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
+                }
+
+                if(window->hasRainSensedUpdated()) {
+                    client->publish(prefix + "rain_sensed", yesOrNo(window->isRainSensed()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
+                }
+
+                if(window->hasRainOverrideActiveUpdated()) {
+                    client->publish(prefix + "rain_override_active", yesOrNo(window->isRainOverrideActive()), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes );
+                }
+
+                if(window->hasLastPolledUpdated()) {
+                    client->publish(prefix + "last_polled", window->getLastPolled(), MQTT_NS::qos::at_least_once | MQTT_NS::retain::yes);
+                }
+
+                // Now go mark the window as not updated
+                window->resetUpdatedFlags();
+            }
+            return true;
+        }
+
+        error("not publishing since we're not connected");
+        return false;
+    }
+
+
+    std::string MQTTClient::yesOrNo(bool value) {
+        return  value ? "yes" : "no";
     }
 
 
@@ -125,7 +165,7 @@ namespace creatures {
 
     bool MQTTClient::on_suback(packet_id_t packet_id, std::vector<MQTT_NS::suback_return_code> results) {
 
-        for (auto const& e : results) {
+        for (auto const &e: results) {
             debug("[client] subscribe packet_id: {}, result: {}", packet_id, MQTT_NS::suback_return_code_to_str(e));
         }
 
