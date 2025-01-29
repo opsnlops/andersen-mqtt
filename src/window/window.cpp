@@ -19,13 +19,17 @@ using json = nlohmann::json;
 
 namespace creatures {
 
-    std::string Window::timePointToISO8601(const std::chrono::system_clock::time_point& tp) const {
+    std::string Window::timePointToISO8601(const std::chrono::system_clock::time_point &tp) const {
         auto timeT = std::chrono::system_clock::to_time_t(tp);
         std::ostringstream oss;
         oss << std::put_time(std::gmtime(&timeT), "%Y-%m-%dT%H:%M:%SZ");
         return oss.str();
     }
 
+
+    std::string Window::createPrefix() {
+        return "andersen-mqtt/windows/" + getName() + "/";
+    }
 
     void Window::setStatus(uint8_t statusByte) {
 
@@ -34,32 +38,32 @@ namespace creatures {
         // Now for the best thing in modern C++, bitsets!
         std::bitset<8> status(statusByte);
 
-        if(open != status.test(0)) {
+        if (open != status.test(0)) {
             openUpdated = true;
             open = status.test(0);
         }
 
-        if(movementObstructed != status.test(1)) {
+        if (movementObstructed != status.test(1)) {
             movementObstructedUpdated = true;
             movementObstructed = status.test(1);
         }
 
-        if(screenMissing != status.test(2)) {
+        if (screenMissing != status.test(2)) {
             screenMissingUpdated = true;
             screenMissing = status.test(2);
         }
 
-        if(rfHeard != status.test(3)) {
+        if (rfHeard != status.test(3)) {
             rfHeardUpdated = true;
             rfHeard = status.test(3);
         }
 
-        if(rainSensed != status.test(4)) {
+        if (rainSensed != status.test(4)) {
             rainSensedUpdated = true;
             rainSensed = status.test(4);
         }
 
-        if(rainOverrideActive != status.test(5)) {
+        if (rainOverrideActive != status.test(5)) {
             rainOverrideActiveUpdated = true;
             rainOverrideActive = status.test(5);
         }
@@ -131,7 +135,7 @@ namespace creatures {
     }
 
 
-    std::vector<std::string> Window::bytesToHexStrings(const uint8_t* bytes, size_t size) {
+    std::vector<std::string> Window::bytesToHexStrings(const uint8_t *bytes, size_t size) {
         std::vector<std::string> hexStrings;
         hexStrings.reserve(size); // Reserve space for efficiency
 
@@ -144,21 +148,21 @@ namespace creatures {
         return hexStrings;
     }
 
-    std::vector<std::string> Window::bytesToHexStrings(const std::vector<uint8_t>& bytes) {
-    return bytesToHexStrings(bytes.data(), bytes.size());
-}
-
-
-std::string joinStrings(const std::vector<std::string>& strings, const std::string& delimiter = ", ") {
-    std::ostringstream oss;
-    for (size_t i = 0; i < strings.size(); ++i) {
-        oss << strings[i];
-        if (i < strings.size() - 1) {
-            oss << delimiter;
-        }
+    std::vector<std::string> Window::bytesToHexStrings(const std::vector<uint8_t> &bytes) {
+        return bytesToHexStrings(bytes.data(), bytes.size());
     }
-    return oss.str();
-}
+
+
+    std::string joinStrings(const std::vector<std::string> &strings, const std::string &delimiter = ", ") {
+        std::ostringstream oss;
+        for (size_t i = 0; i < strings.size(); ++i) {
+            oss << strings[i];
+            if (i < strings.size() - 1) {
+                oss << delimiter;
+            }
+        }
+        return oss.str();
+    }
 
     /**
      * Calculates the checksum for a given message.
@@ -167,7 +171,7 @@ std::string joinStrings(const std::vector<std::string>& strings, const std::stri
      * @param message The input message as a vector of bytes.
      * @return The calculated checksum.
      */
-    uint8_t Window::calculateChecksum(const std::vector<uint8_t>& message) {
+    uint8_t Window::calculateChecksum(const std::vector<uint8_t> &message) {
         if (message.size() <= 1) {
             return 0; // If the message has 1 or fewer bytes, checksum is meaningless
         }
@@ -193,7 +197,7 @@ std::string joinStrings(const std::vector<std::string>& strings, const std::stri
      * @param message The input message as a vector of bytes.
      * @return True if the checksum is valid, false otherwise.
      */
-    bool Window::validateChecksum(const std::vector<uint8_t>& message) {
+    bool Window::validateChecksum(const std::vector<uint8_t> &message) {
         if (message.size() < 2) {
             // Not enough data to validate (minimum 1 byte + checksum)
             return false;

@@ -40,22 +40,22 @@ namespace creatures {
 
         bool on_connack(bool sp, mqtt::connect_return_code connack_return_code);
         void on_close();
-        void on_error(MQTT_NS::error_code ec);
-        bool on_suback(packet_id_t packet_id, std::vector<MQTT_NS::suback_return_code> results);
+        static void on_error(MQTT_NS::error_code ec);
+        static bool on_suback(packet_id_t packet_id, std::vector<MQTT_NS::suback_return_code> results);
         bool on_publish(MQTT_NS::optional<packet_id_t> packet_id,
                         MQTT_NS::publish_options pubopts,
                         MQTT_NS::buffer topic_name,
                         MQTT_NS::buffer contents);
 
-
-        bool publishWindows();
         bool publishWindows(bool forcePublish);
+        bool subscribe(std::shared_ptr<Window> window);
 
     private:
 
         bool connected;
 
         static std::string yesOrNo(bool value);
+
 
         // Keep track of our windows
         std::vector<std::shared_ptr<Window>> windows;
@@ -65,10 +65,6 @@ namespace creatures {
         std::string port;
 
         std::shared_ptr<MQTTClientType::element_type> client;
-
-
-        packet_id_t pid_sub1;
-        packet_id_t pid_sub2;
 
         std::thread ioThread;
 

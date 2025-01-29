@@ -48,6 +48,8 @@ namespace creatures {
         void setStatus(uint8_t statusByte);
 
 
+        std::string createPrefix();
+
         [[nodiscard]] std::string getName() const;
         uint8_t getNumber() const;
         bool isOpen() const;
@@ -97,6 +99,8 @@ namespace creatures {
         bool rainSensedUpdated = true;
         bool rainOverrideActiveUpdated = true;
         bool lastPolledUpdated = true;
+
+
 
 
         [[nodiscard]] std::string timePointToISO8601(const std::chrono::system_clock::time_point& tp) const;
