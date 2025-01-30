@@ -298,7 +298,7 @@ int main() {
     mqttClient->start();
 
 
-    const char* host = "10.3.2.222";
+    const char* host = "10.3.2.5";
     int port = 6000;
 
     int socket_fd = connect_to_server(host, port);
