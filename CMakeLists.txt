@@ -1,8 +1,21 @@
 cmake_minimum_required(VERSION 3.25)
-project(andersen_mqtt VERSION 1.0 LANGUAGES CXX)
+project(andersen_mqtt
+        VERSION 1.1.0
+        DESCRIPTION "Bridge Andersen window controllers to MQTT"
+        HOMEPAGE_URL "https://github.com/opsnlops/andersen-mqtt"
+        LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Full RELRO: resolve every symbol at load so the GOT can be read-only (Debian hardening).
+# This has to come before any target is defined.
+# Fortified libc calls and a stack protector, as dpkg-buildflags would add.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_link_options(LINKER:-z,relro LINKER:-z,now)
+    add_compile_options(-fstack-protector-strong)
+    add_compile_definitions($<$<NOT:$<CONFIG:Debug>>:_FORTIFY_SOURCE=2>)
+endif()
 
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
@@ -47,6 +60,15 @@ if(NOT mqtt_cpp_POPULATED)
 endif()
 
 
+# argparse
+FetchContent_Declare(
+        argparse
+        GIT_REPOSITORY https://github.com/p-ranav/argparse.git
+        GIT_TAG v3.2
+)
+FetchContent_MakeAvailable(argparse)
+
+
 # Set up a concurrent queue
 set(MOODYCAMEL_DIR "${CMAKE_SOURCE_DIR}/lib/moodycamel")
 
@@ -73,7 +95,15 @@ add_executable(andersen_mqtt
         src/serial/serial.h
         src/socket/socket.cpp
         src/socket/socket.h
+        src/config/config.cpp
+        src/config/config.h
 )
+
+# Debian prefers hyphens in command names
+set_target_properties(andersen_mqtt PROPERTIES OUTPUT_NAME andersen-mqtt)
+target_compile_definitions(andersen_mqtt PRIVATE
+        ANDERSEN_MQTT_VERSION="${PROJECT_VERSION}"
+        ANDERSEN_MQTT_DEFAULT_CONFIG="/etc/andersen-mqtt/andersen-mqtt.json")
 
 target_include_directories(andersen_mqtt PRIVATE ${MQTT_CPP_INCLUDE})
 
@@ -84,4 +114,7 @@ target_link_libraries(andersen_mqtt
         Boost::system
         Boost::log
         nlohmann_json::nlohmann_json
+        argparse
 )
+
+include(cmake/Package.cmake)

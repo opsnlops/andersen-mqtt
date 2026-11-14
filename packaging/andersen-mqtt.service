@@ -1,0 +1,28 @@
+[Unit]
+Description=Andersen windows to MQTT bridge
+Documentation=man:andersen-mqtt(8)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/andersen-mqtt --config /etc/andersen-mqtt/andersen-mqtt.json
+# Restart whenever it exits, including after losing the gateway connection
+Restart=always
+RestartSec=10
+# Needs no state and no devices, only the network
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

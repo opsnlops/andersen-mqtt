@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = configure ] || [ "$1" = abort-upgrade ] || [ "$1" = abort-deconfigure ] || [ "$1" = abort-remove ]; then
+    # Enable the service on first install, and keep the admin's choice after that
+    deb-systemd-helper unmask andersen-mqtt.service >/dev/null || true
+    if deb-systemd-helper --quiet was-enabled andersen-mqtt.service; then
+        deb-systemd-helper enable andersen-mqtt.service >/dev/null || true
+    else
+        deb-systemd-helper update-state andersen-mqtt.service >/dev/null || true
+    fi
+
+    if [ -d /run/systemd/system ]; then
+        systemctl --system daemon-reload >/dev/null || true
+        if [ -n "$2" ]; then
+            deb-systemd-invoke try-restart andersen-mqtt.service >/dev/null || true
+        else
+            deb-systemd-invoke start andersen-mqtt.service >/dev/null || true
+        fi
+    fi
+fi
+
+exit 0

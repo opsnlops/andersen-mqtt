@@ -1,51 +1,87 @@
 # andersen-mqtt
 
-## Build the container
+Bridges an Andersen window controller to MQTT. It talks to the controller
+through a TCP serial gateway, polls the status of its four windows, and
+publishes each window's state to an MQTT broker as retained topics. Commands
+published to a window's `command` topic open, close or stop it.
 
-This repo includes a multi-arch build script powered by Docker Buildx.
+It ships as a Debian package for amd64 and arm64, with a systemd service.
+`man 8 andersen-mqtt` covers every option, the configuration file and the
+topics.
 
-### Local builds (two tags)
+## Configuration
 
-Build and load per-arch images into your local Docker daemon:
+The service reads `/etc/andersen-mqtt/andersen-mqtt.json`:
 
-```bash
-./scripts/build-images.sh
+```json
+{
+  "mqtt": {
+    "host": "10.3.2.5",
+    "port": 1883,
+    "clientId": "andersen-mqtt",
+    "topicPrefix": "andersen-mqtt/windows"
+  },
+  "gateway": {
+    "host": "10.3.2.5",
+    "port": 6000
+  },
+  "pollIntervalSeconds": 5,
+  "logLevel": "info"
+}
 ```
 
-This creates:
-- `opsnlops/andersen-mqtt:latest-amd64`
-- `opsnlops/andersen-mqtt:latest-arm64`
+Every key is optional and defaults to the value above. An unknown key, or a
+value of the wrong type, stops the program at startup. Hosts may be names or
+addresses.
 
-### Multi-arch push (single tag)
+Command-line options: `--config FILE`, `--log-level LEVEL`, `--version`,
+`--help`.
 
-Build and push a true multi-platform image manifest:
+## Topics
 
-```bash
-PUSH=true ./scripts/build-images.sh
-```
+For each of `window1` to `window4`, under `<topicPrefix>/<window>/`:
 
-This publishes a single tag `opsnlops/andersen-mqtt:latest` with both
-`linux/amd64` and `linux/arm64`.
+- published (retained): `open`, `movement_obstructed`, `screen_missing`,
+  `rf_heard`, `rain_sensed`, `rain_override_active` (`yes`/`no`), and
+  `last_polled` (ISO 8601)
+- subscribed: `command`, where a message starting with `o` opens, `c` closes,
+  and `s` stops (any case, so Home Assistant's `OPEN`/`CLOSE`/`STOP` work)
 
-### Customize the build
+## Building the package
 
-You can override these environment variables:
-- `IMAGE_NAME` (default: `opsnlops/andersen-mqtt`)
-- `TAG` (default: `latest`)
-- `PLATFORMS` (default: `linux/amd64,linux/arm64`)
-- `PUSH` (default: `false`)
-- `BUILDER` (default: `andersen-mqtt-builder`)
-
-Example:
+The package is built inside `debian:trixie` with CPack, then installed and
+checked in a clean Debian container. You need Docker.
 
 ```bash
-IMAGE_NAME=opsnlops/andersen-mqtt TAG=dev PLATFORMS=linux/arm64 ./scripts/build-images.sh
+./make_packages.sh
 ```
 
-## Run
+This builds for the machine's own architecture and leaves the `.deb` in
+`package/`. To see lintian's findings:
 
 ```bash
-docker run -d --rm \
-  --name=andersen-mqtt \
-  opsnlops/andersen-mqtt:latest
+./report_lintian.sh
 ```
+
+GitHub Actions runs the same script on amd64 and arm64 runners and uploads
+each `.deb` as a build artifact, ready to copy into the local apt repository.
+
+Bump `VERSION` in `CMakeLists.txt` for every release, or apt won't see a new
+package.
+
+## Service
+
+Installing the package enables and starts `andersen-mqtt.service`, and
+upgrading restarts it.
+
+The program doesn't reconnect by itself. If it loses the broker or the gateway,
+or the window controller stops answering for three poll intervals (at least 30
+seconds), it exits with a failure status and systemd starts it again 10 seconds
+later.
+
+```bash
+journalctl -u andersen-mqtt.service -f
+```
+
+Override the unit with a drop-in under
+`/etc/systemd/system/andersen-mqtt.service.d/`.

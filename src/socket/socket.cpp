@@ -4,33 +4,44 @@
 
 #include "socket.h"
 
-
-#include <arpa/inet.h>
 #include <cstring>
-#include <iostream>
+#include <netdb.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include "namespace-stuffs.h"
 
-int connect_to_server(const char* host, int port) {
+int connect_to_server(const std::string &host, int port) {
 
     debug("connecting to {}:{}", host, port);
 
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        perror("Socket creation failed");
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    addrinfo *addresses = nullptr;
+    const std::string service = std::to_string(port);
+    if (int rc = getaddrinfo(host.c_str(), service.c_str(), &hints, &addresses); rc != 0) {
+        error("Unable to resolve {}: {}", host, gai_strerror(rc));
         return -1;
     }
 
-    sockaddr_in server_addr{};
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);
-    inet_pton(AF_INET, host, &server_addr.sin_addr);
-
-    if (connect(sock, (sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Connection failed");
-        error("Failed to connect to {}:{}", host, port);
+    int sock = -1;
+    for (addrinfo *address = addresses; address != nullptr; address = address->ai_next) {
+        sock = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
+        if (sock < 0) {
+            continue;
+        }
+        if (connect(sock, address->ai_addr, address->ai_addrlen) == 0) {
+            break;
+        }
         close(sock);
+        sock = -1;
+    }
+    freeaddrinfo(addresses);
+
+    if (sock < 0) {
+        error("Failed to connect to {}:{}: {}", host, port, strerror(errno));
         return -1;
     }
 
