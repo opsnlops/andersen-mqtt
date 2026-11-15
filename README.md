@@ -9,6 +9,40 @@ It ships as a Debian package for amd64 and arm64, with a systemd service.
 `man 8 andersen-mqtt` covers every option, the configuration file and the
 topics.
 
+## How it reaches the windows
+
+andersen-mqtt never opens a serial port, so there is no serial device in its
+configuration. The window controller's RS-232 link is plugged into a USB serial
+adapter on home-automation, and [ser2net](https://github.com/cminyard/ser2net)
+shares it as a raw TCP connection on port 6000. andersen-mqtt connects there
+(`gateway.host` and `gateway.port`).
+
+The serial settings live in ser2net's configuration, `/etc/ser2net.yaml`:
+
+```yaml
+connection: &con06000
+  accepter: tcp,6000
+  enable: on
+  options:
+    kickolduser: true
+  connector: serialdev,
+             /dev/ttyUSB0,
+             9600n81,local
+```
+
+- The line is **9600 baud, 8N1, no flow control**. `local` tells ser2net to
+  ignore the modem control lines.
+- The accepter has to be plain `tcp`, not `telnet`. The window protocol is
+  binary, and telnet negotiation would corrupt it.
+- `kickolduser: true` means a new connection drops the old one. Only run one
+  copy of andersen-mqtt against the gateway, or the two will keep kicking each
+  other off. The same goes for testing from another machine.
+
+Until January 2025 the program opened the USB serial adapter directly. It moved
+to ser2net because that was easier to run in a container, and it keeps a better
+separation of concerns: ser2net owns the serial hardware, and andersen-mqtt only
+speaks the window protocol.
+
 ## Configuration
 
 The service reads `/etc/andersen-mqtt/andersen-mqtt.json`:
