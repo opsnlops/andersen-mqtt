@@ -10,6 +10,8 @@ ExecStart=/usr/bin/andersen-mqtt --config /etc/andersen-mqtt/andersen-mqtt.json
 # Restart whenever it exits, including after losing the gateway connection
 Restart=always
 RestartSec=10
+# It stops within a second; don't wait the default 90 if something hangs
+TimeoutStopSec=15
 # Needs no state and no devices, only the network
 DynamicUser=yes
 NoNewPrivileges=yes

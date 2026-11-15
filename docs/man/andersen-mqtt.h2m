@@ -22,7 +22,8 @@ and restarted when the package is upgraded.
 The program does not reconnect by itself. It exits with a failure status when
 it loses the MQTT broker (including when another client connects with the same
 .BR mqtt.clientId ),
-when the broker refuses the connection, when the gateway closes the connection,
+when the broker refuses the connection or hasn't completed it within 30
+seconds, when the gateway closes the connection,
 or when no status arrives from the window controller for three poll intervals
 (at least 30 seconds). systemd then starts it again after ten seconds. It exits
 cleanly on
@@ -63,7 +64,7 @@ Gateway TCP port. Default
 .BR 6000 .
 .TP
 .B pollIntervalSeconds
-Seconds between status polls. Default
+Seconds between status polls, from 1 to 3600. Default
 .BR 5 .
 .TP
 .B logLevel
@@ -119,7 +120,9 @@ stops it, in either case, so Home Assistant's default
 .B CLOSE
 and
 .B STOP
-payloads work.
+payloads work. Retained messages on a command topic are ignored, since the
+broker would replay them every time the program starts; publish commands
+without the retain flag.
 
 [FILES]
 .TP

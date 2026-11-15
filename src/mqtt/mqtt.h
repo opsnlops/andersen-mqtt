@@ -39,6 +39,8 @@ namespace creatures {
         void start();
         void stop();
 
+        [[nodiscard]] bool isConnected() const { return connected; }
+
         void addWindow(std::shared_ptr<Window> window);
 
         bool subscribe(std::string topic, MQTT_NS::qos qos);

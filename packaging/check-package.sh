@@ -29,7 +29,12 @@ sed -e 's/"10.3.2.5"/"127.0.0.1"/' -e 's/"port": 1883/"port": 1/' \
 printf '{"mqtt": {"host": "127.0.0.1", "hots": "x"}}\n' > "$work/unknown.json"
 printf '{"gateway": {"port": "6000"}}\n' > "$work/badtype.json"
 printf '{"logLevel": "loud"}\n' > "$work/badlevel.json"
-for bad in unknown badtype badlevel; do
+printf '{"mqtt": {"port": true}}\n' > "$work/boolport.json"
+printf '{"pollIntervalSeconds": 1.5}\n' > "$work/floatpoll.json"
+printf '{"gateway": {"port": 4294968296}}\n' > "$work/hugeport.json"
+printf '{"pollIntervalSeconds": 100000}\n' > "$work/hugepoll.json"
+printf '{"mqtt": {"topicPrefix": "windows/#"}}\n' > "$work/wildcard.json"
+for bad in unknown badtype badlevel boolport floatpoll hugeport hugepoll wildcard; do
     if andersen-mqtt --config "$work/$bad.json" 2> "$work/$bad.err"; then exit 1; fi
     grep -q "andersen-mqtt:" "$work/$bad.err"
 done

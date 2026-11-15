@@ -39,6 +39,8 @@ namespace creatures {
         client->set_clean_session(true);
         // Ping the broker so a connection that dies silently is noticed
         client->set_keep_alive_sec(30);
+        // Without this, a missing PINGRESP is never treated as a failure
+        client->set_pingresp_timeout(std::chrono::seconds(10));
 
         // Bind the member function for the connack handler
         client->set_connack_handler(
@@ -67,7 +69,17 @@ namespace creatures {
         client->connect();
 
         debug("starting the ioc");
-        this->ioThread = std::thread([this] { ioc.run(); });
+        this->ioThread = std::thread([this] {
+            try {
+                ioc.run();
+            }
+            catch (const std::exception &e) {
+                connected = false;
+                if (!stopping && connectionLost) {
+                    connectionLost(std::string("MQTT failure: ") + e.what());
+                }
+            }
+        });
 
     }
 
@@ -231,7 +243,12 @@ namespace creatures {
         info("subscribe acknowledged! packet_id: {}", packet_id);
 
         for (auto const &e: results) {
-            debug("[client] subscribe packet_id: {}, result: {}", packet_id, MQTT_NS::suback_return_code_to_str(e));
+            if (e == MQTT_NS::suback_return_code::failure) {
+                error("the broker refused a subscription (packet_id {}); commands for that window won't arrive",
+                      packet_id);
+            } else {
+                debug("subscribe packet_id: {}, result: {}", packet_id, MQTT_NS::suback_return_code_to_str(e));
+            }
         }
 
         return true;
@@ -255,6 +272,13 @@ namespace creatures {
 
         debug("received a message on topic {}: {}", topic_str, contents_str);
 
+        // A retained command would be replayed every time we subscribe, which
+        // is every restart. Only act on commands sent while we're listening.
+        if (pubopts.get_retain() == MQTT_NS::retain::yes) {
+            warn("ignoring a retained message on {}; publish commands without retain", topic_str);
+            return true;
+        }
+
         // Figure out which window
         for (auto const &window: windows) {
             std::string prefix = window->createPrefix();
@@ -277,7 +301,8 @@ namespace creatures {
                         break;
                     default:
                         error("unknown window number: {}", window->getNumber());
-                        return false;
+                        // Returning false would tell mqtt_cpp to stop receiving for good
+                        return true;
                 }
                 debug("windowId: {}", windowId);
 
@@ -299,7 +324,8 @@ namespace creatures {
                         break;
                     default:
                         error("unknown command received for {}: '{}'", window->getName(), contents_str);
-                        return false;
+                        // Returning false would tell mqtt_cpp to stop receiving for good
+                        return true;
                 }
 
                 // ...and send it

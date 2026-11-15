@@ -77,18 +77,23 @@ void reader_thread(int socket_fd) {
     while (keepRunning) {
         std::vector<uint8_t> tempBuffer(1024); // Temporary buffer for reading
         ssize_t bytes_received = recv(socket_fd, tempBuffer.data(), tempBuffer.size(), 0);
+        int recvError = errno; // before any logging can change it
 
-        debug("Received {} bytes", bytes_received);
+        if (bytes_received < 0 && recvError == EINTR) {
+            continue;
+        }
 
         if (bytes_received <= 0) {
             // During shutdown main closes the socket under us, which isn't a failure
             if (keepRunning) {
                 shutDownWithFailure(bytes_received == 0 ? "the gateway closed the connection"
                                                         : fmt::format("error reading from the gateway: {}",
-                                                                      strerror(errno)));
+                                                                      strerror(recvError)));
             }
             break;
         }
+
+        debug("Received {} bytes", bytes_received);
 
         // Append newly received bytes to the persistent buffer
         buffer.insert(buffer.end(), tempBuffer.begin(), tempBuffer.begin() + bytes_received);
@@ -169,8 +174,17 @@ void writer_thread(int socket_fd) {
             if(!message.empty()) {
                 debug("Sending message of size {}", message.size());
                 // MSG_NOSIGNAL: a gateway that hung up should end in an error, not SIGPIPE
-                if (send(socket_fd, message.data(), message.size(), MSG_NOSIGNAL) < 0) {
-                    shutDownWithFailure(fmt::format("error writing to the gateway: {}", strerror(errno)));
+                size_t sent = 0;
+                while (sent < message.size()) {
+                    ssize_t n = send(socket_fd, message.data() + sent, message.size() - sent, MSG_NOSIGNAL);
+                    if (n < 0 && errno == EINTR) {
+                        continue;
+                    }
+                    if (n <= 0) {
+                        shutDownWithFailure(fmt::format("error writing to the gateway: {}", strerror(errno)));
+                        break;
+                    }
+                    sent += static_cast<size_t>(n);
                 }
             }
             else
@@ -252,8 +266,13 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    std::signal(SIGINT, signalHandler);
-    std::signal(SIGTERM, signalHandler);
+    // No SA_RESTART, so a signal interrupts a blocking connect() instead of
+    // waiting out its timeout
+    struct sigaction action{};
+    action.sa_handler = signalHandler;
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGINT, &action, nullptr);
+    sigaction(SIGTERM, &action, nullptr);
 
     try {
         // Set up our locale. If this vomits, install `locales-all`
@@ -309,7 +328,8 @@ int main(int argc, char **argv) {
     int socket_fd = connect_to_server(config.gatewayHost, config.gatewayPort);
     if (socket_fd < 0) {
         mqttClient->stop();
-        return EXIT_FAILURE;
+        // Interrupted by SIGTERM or SIGINT is a normal stop
+        return keepRunning ? EXIT_FAILURE : EXIT_SUCCESS;
     }
 
     std::thread reader(reader_thread, socket_fd);
@@ -322,9 +342,22 @@ int main(int argc, char **argv) {
                                         std::chrono::seconds(3 * config.pollIntervalSeconds));
     lastStatus = std::chrono::steady_clock::now().time_since_epoch().count();
 
+    // The broker can accept the TCP connection and then never answer the MQTT
+    // CONNECT. The gateway's replies would keep the status watchdog happy, so
+    // watch the broker connection separately.
+    const auto connectTimeout = std::chrono::seconds(30);
+    auto lastConnected = std::chrono::steady_clock::now();
+
     // Poll the windows until something asks us to stop
     auto nextPoll = std::chrono::steady_clock::now();
     while (keepRunning) {
+        if (mqttClient->isConnected()) {
+            lastConnected = std::chrono::steady_clock::now();
+        } else if (std::chrono::steady_clock::now() - lastConnected > connectTimeout) {
+            shutDownWithFailure(fmt::format("not connected to the MQTT broker for {} seconds",
+                                            connectTimeout.count()));
+            break;
+        }
         auto sinceStatus = std::chrono::steady_clock::now() -
                            std::chrono::steady_clock::time_point(std::chrono::steady_clock::duration(lastStatus.load()));
         if (sinceStatus > statusTimeout) {

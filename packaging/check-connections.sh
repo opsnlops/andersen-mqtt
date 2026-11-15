@@ -70,9 +70,41 @@ start_bridge 20
 timeout 3 mosquitto_sub -h 127.0.0.1 -p "$broker_port" -i andersen-mqtt -t unused || true
 expect_exit 1 'MQTT.*shutting down'
 
+echo "A bad command doesn't stop it handling the next one"
+start_bridge 20
+mosquitto_pub -h 127.0.0.1 -p "$broker_port" -t andersen-mqtt/windows/window1/command -n
+mosquitto_pub -h 127.0.0.1 -p "$broker_port" -t andersen-mqtt/windows/window1/command -m toggle
+mosquitto_pub -h 127.0.0.1 -p "$broker_port" -t andersen-mqtt/windows/window1/command -m OPEN
+sleep 1
+grep -q "unknown command received for window1: 'toggle'" "$work/bridge.log"
+grep -q 'opening window window1' "$work/bridge.log"
+kill -TERM "$bridge"
+expect_exit 0 'stopped$'
+
+echo "A retained command is not replayed on start"
+mosquitto_pub -h 127.0.0.1 -p "$broker_port" -t andersen-mqtt/windows/window2/command -r -m close
+start_bridge 20
+sleep 1
+grep -q 'ignoring a retained message on andersen-mqtt/windows/window2/command' "$work/bridge.log"
+if grep -q 'closing window window2' "$work/bridge.log"; then cat "$work/bridge.log"; exit 1; fi
+kill -TERM "$bridge"
+expect_exit 0 'stopped$'
+mosquitto_pub -h 127.0.0.1 -p "$broker_port" -t andersen-mqtt/windows/window2/command -r -n
+
 echo "A gateway that never answers is a failure"
 start_bridge 60
 expect_exit 1 'no status from the window controller'
+
+echo "A broker that never answers CONNECT is a failure"
+kill "$broker" 2>/dev/null || true
+wait "$broker" 2>/dev/null || true
+nc -lk 127.0.0.1 "$broker_port" > /dev/null &
+broker=$!
+sleep 1
+: > "$work/bridge.log"
+timeout -s KILL 60 andersen-mqtt --config "$work/config.json" > "$work/bridge.log" 2>&1 &
+bridge=$!
+expect_exit 1 'not connected to the MQTT broker'
 
 kill "$broker" "$gateway" 2>/dev/null || true
 echo "Connection checks passed."

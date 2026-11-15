@@ -1,5 +1,6 @@
 #include "config.h"
 
+#include <cstdint>
 #include <fstream>
 #include <set>
 #include <stdexcept>
@@ -28,16 +29,32 @@ namespace creatures {
             return value;
         }
 
-        template<typename T>
-        void readValue(const json &object, const char *key, T &target, const std::string &where) {
+        // nlohmann's get<> converts freely (true -> 1, 0.5 -> 0), so check the
+        // JSON type exactly and range-check integers before narrowing them.
+        void readValue(const json &object, const char *key, std::string &target, const std::string &where) {
             if (!object.contains(key)) {
                 return;
             }
-            try {
-                target = object.at(key).get<T>();
-            } catch (const json::exception &) {
-                throw std::runtime_error("'" + where + key + "' has the wrong type");
+            if (!object.at(key).is_string()) {
+                throw std::runtime_error("'" + where + key + "' must be a string");
             }
+            target = object.at(key).get<std::string>();
+        }
+
+        void readValue(const json &object, const char *key, int &target, const std::string &where) {
+            if (!object.contains(key)) {
+                return;
+            }
+            const auto &value = object.at(key);
+            if (!value.is_number_integer()) {
+                throw std::runtime_error("'" + where + key + "' must be an integer");
+            }
+            if (value.is_number_unsigned() ? value.get<std::uint64_t>() > 1000000
+                                           : (value.get<std::int64_t>() < -1000000 ||
+                                              value.get<std::int64_t>() > 1000000)) {
+                throw std::runtime_error("'" + where + key + "' is out of range");
+            }
+            target = static_cast<int>(value.get<std::int64_t>());
         }
 
         void checkPort(int port, const std::string &where) {
@@ -101,8 +118,11 @@ namespace creatures {
 
         checkPort(config.mqttPort, "mqtt.port");
         checkPort(config.gatewayPort, "gateway.port");
-        if (config.pollIntervalSeconds < 1) {
-            throw std::runtime_error("'pollIntervalSeconds' must be at least 1");
+        if (config.pollIntervalSeconds < 1 || config.pollIntervalSeconds > 3600) {
+            throw std::runtime_error("'pollIntervalSeconds' must be between 1 and 3600");
+        }
+        if (config.mqttClientId.empty()) {
+            throw std::runtime_error("'mqtt.clientId' must not be empty");
         }
         if (config.mqttHost.empty() || config.gatewayHost.empty()) {
             throw std::runtime_error("'mqtt.host' and 'gateway.host' must not be empty");
@@ -113,6 +133,9 @@ namespace creatures {
         }
         if (config.topicPrefix.empty()) {
             throw std::runtime_error("'mqtt.topicPrefix' must not be empty");
+        }
+        if (config.topicPrefix.find_first_of("+#") != std::string::npos) {
+            throw std::runtime_error("'mqtt.topicPrefix' must not contain the MQTT wildcards + or #");
         }
 
         return config;
