@@ -1,0 +1,160 @@
+[DESCRIPTION]
+.B andersen-mqtt
+connects to an Andersen window controller through a TCP serial gateway, polls
+the status of its four windows, and publishes each window's state to an MQTT
+broker. Commands published to a window's command topic open, close or stop
+that window.
+.PP
+On a server it runs as a systemd service, described under
+.BR SERVICE .
+The options below are for running it by hand.
+
+[SERVICE]
+The package installs and enables
+.BR andersen-mqtt.service ,
+which runs
+.B andersen-mqtt
+with the configuration file listed under
+.B FILES
+as a dynamically allocated user. It is started when the package is installed
+and restarted when the package is upgraded.
+.PP
+The program does not reconnect by itself. It exits with a failure status when
+it loses the MQTT broker (including when another client connects with the same
+.BR mqtt.clientId ),
+when the broker refuses the connection, when the gateway closes the connection,
+or when no status arrives from the window controller for three poll intervals
+(at least 30 seconds). systemd then starts it again after ten seconds. It exits
+cleanly on
+.B SIGTERM
+or
+.BR SIGINT .
+
+[CONFIGURATION]
+The configuration file is a JSON object. Every key is optional, and a missing
+key keeps the default shown below. An unknown key, or a value of the wrong
+type, stops the program at startup rather than being ignored.
+.TP
+.B mqtt.host
+MQTT broker host name or address. Default
+.BR 10.3.2.5 .
+.TP
+.B mqtt.port
+MQTT broker port. Default
+.BR 1883 .
+.TP
+.B mqtt.clientId
+MQTT client identifier. Default
+.BR andersen\-mqtt .
+Two clients with the same identifier disconnect each other, so give each
+running copy its own.
+.TP
+.B mqtt.topicPrefix
+Prefix for every topic. Default
+.BR andersen\-mqtt/windows .
+.TP
+.B gateway.host
+Host name or address of the TCP serial gateway attached to the window
+controller. Default
+.BR 10.3.2.5 .
+.TP
+.B gateway.port
+Gateway TCP port. Default
+.BR 6000 .
+.TP
+.B pollIntervalSeconds
+Seconds between status polls. Default
+.BR 5 .
+.TP
+.B logLevel
+One of
+.BR trace ,
+.BR debug ,
+.BR info ,
+.BR warning ,
+.BR error ,
+.BR critical ,
+or
+.BR off .
+Default
+.BR info .
+The
+.B \-\-log\-level
+option overrides it.
+
+[TOPICS]
+Each window is named
+.B window1
+to
+.BR window4 .
+For a window
+.IR NAME ,
+the program publishes retained messages to
+.IR PREFIX / NAME /open ,
+.BR movement_obstructed ,
+.BR screen_missing ,
+.BR rf_heard ,
+.BR rain_sensed
+and
+.B rain_override_active
+(each
+.B yes
+or
+.BR no ),
+and
+.B last_polled
+(an ISO 8601 time). It publishes when a value changes, and every value once
+after starting.
+.PP
+It subscribes to
+.IR PREFIX / NAME /command .
+A message starting with
+.B o
+opens the window,
+.B c
+closes it, and
+.B s
+stops it, in either case, so Home Assistant's default
+.BR OPEN ,
+.B CLOSE
+and
+.B STOP
+payloads work.
+
+[FILES]
+.TP
+.I /etc/andersen\-mqtt/andersen\-mqtt.json
+Configuration file, read by the service. Upgrades keep local changes.
+.TP
+.I /usr/lib/systemd/system/andersen\-mqtt.service
+The systemd unit. Override it with a drop\-in under
+.IR /etc/systemd/system/andersen\-mqtt.service.d/ .
+
+[EXAMPLES]
+Run in the foreground against a test configuration, with debug logging:
+.PP
+.RS
+.nf
+andersen\-mqtt \-\-config ./test.json \-\-log\-level debug
+.fi
+.RE
+.PP
+Watch the service, and every topic it publishes:
+.PP
+.RS
+.nf
+journalctl \-u andersen\-mqtt.service \-f
+mosquitto_sub \-h 10.3.2.5 \-t 'andersen\-mqtt/windows/#' \-v
+.fi
+.RE
+.PP
+Open the first window:
+.PP
+.RS
+.nf
+mosquitto_pub \-h 10.3.2.5 \-t andersen\-mqtt/windows/window1/command \-m open
+.fi
+.RE
+
+[SEE ALSO]
+.BR systemd.unit (5)

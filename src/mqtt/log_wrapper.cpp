@@ -49,10 +49,10 @@ public:
             auto severity = severity_attr.get();
             // Map the Boost severity level to spdlog level
             auto spdlog_level = map_severity_level(severity);
-            spdlog::log(spdlog_level, formatted_message);
+            spdlog::log(spdlog_level, "{}", formatted_message);
         } else {
             // Default to info level if we can't get the severity level
-            spdlog::info(formatted_message);
+            spdlog::info("{}", formatted_message);
         }
     }
 };

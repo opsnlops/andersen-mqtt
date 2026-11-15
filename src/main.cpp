@@ -1,4 +1,5 @@
 
+#include <algorithm>
 #include <csignal>
 #include <sstream>
 #include <vector>
@@ -6,6 +7,7 @@
 #include <atomic>
 #include <cstring>
 #include <unistd.h>
+#include <sys/socket.h>
 #include <string>
 #include <iomanip>
 #include <iostream>
@@ -19,15 +21,30 @@
 
 #include "mqtt/mqtt.h"
 #include "mqtt/log_wrapper.h"
+#include "config/config.h"
 #include "socket/socket.h"
 #include "window/window.h"
 
 #include "blockingconcurrentqueue.h"
 
 
-// Old school pointer so the signal handler knows what to do
 creatures::MQTTClient* mqttClient = nullptr;
+
+// Cleared to shut down. A signal clears it for a normal exit; losing the
+// gateway or the broker clears it and sets a failure status, so that systemd
+// starts the program again and it reconnects.
 std::atomic<bool> keepRunning(true);
+std::atomic<int> exitStatus(EXIT_SUCCESS);
+
+// When the last status reply arrived, as steady_clock ticks
+std::atomic<std::chrono::steady_clock::rep> lastStatus(0);
+
+void shutDownWithFailure(const std::string &reason) {
+    if (keepRunning.exchange(false)) {
+        error("{}; shutting down", reason);
+        exitStatus = EXIT_FAILURE;
+    }
+}
 
 std::shared_ptr<moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>>> outgoingSocketMessages;
 std::shared_ptr<moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>>> incomingSocketMessages;
@@ -38,20 +55,9 @@ std::shared_ptr<creatures::Window> window2;
 std::shared_ptr<creatures::Window> window3;
 std::shared_ptr<creatures::Window> window4;
 
-extern "C" void signalHandler(int signalNumber) {
-    if (signalNumber == SIGINT) {
-
-        std::cerr << "Exiting..." << std::endl;
-
-        // Stop the serial reader
-        keepRunning = false;
-
-        // Stop the MQTT client
-        if (mqttClient) {
-            mqttClient->stop();
-        }
-
-    }
+// Only async-signal-safe work here: main notices and does the rest.
+extern "C" void signalHandler(int) {
+    keepRunning = false;
 }
 
 // Helper to join strings for logging
@@ -75,9 +81,12 @@ void reader_thread(int socket_fd) {
         debug("Received {} bytes", bytes_received);
 
         if (bytes_received <= 0) {
-            std::cerr << "Connection closed or error occurred\n";
-            error("Connection closed or error occurred");
-            keepRunning = false;
+            // During shutdown main closes the socket under us, which isn't a failure
+            if (keepRunning) {
+                shutDownWithFailure(bytes_received == 0 ? "the gateway closed the connection"
+                                                        : fmt::format("error reading from the gateway: {}",
+                                                                      strerror(errno)));
+            }
             break;
         }
 
@@ -132,17 +141,12 @@ void reader_thread(int socket_fd) {
             // Debug: Log the full message being processed
             debug("Processing full message: [{}]", joinStrings(creatures::Window::bytesToHexStrings(message)));
 
-            // Create a slice of the message that excludes the checksum byte
-            std::vector<uint8_t> messageWithoutChecksum(message.begin(), message.end());
-
-            // Validate the checksum
-            if (!creatures::Window::validateChecksum(messageWithoutChecksum)) {
-                debug("Checksum validation failed. Message: [{}], Calculated checksum: 0x{:x}, Provided checksum: 0x{:x}",
-                      joinStrings(creatures::Window::bytesToHexStrings(messageWithoutChecksum)),
-                      creatures::Window::calculateChecksum(messageWithoutChecksum),
-                      message.back());
-                std::cerr << "Invalid checksum received. Discarding message.\n";
-                buffer.erase(buffer.begin(), buffer.begin() + expectedSize); // Remove processed bytes
+            // Validate the checksum. On a mismatch drop only the header byte and
+            // resync: the real start of a frame may be inside this one.
+            if (!creatures::Window::validateChecksum(message)) {
+                warn("Invalid checksum; discarding a header byte. Message: [{}]",
+                     joinStrings(creatures::Window::bytesToHexStrings(message)));
+                buffer.erase(buffer.begin());
                 continue;
             }
 
@@ -164,7 +168,10 @@ void writer_thread(int socket_fd) {
         if (outgoingSocketMessages->wait_dequeue_timed(message, std::chrono::seconds(1))) {
             if(!message.empty()) {
                 debug("Sending message of size {}", message.size());
-                send(socket_fd, message.data(), message.size(), 0); // Send binary data
+                // MSG_NOSIGNAL: a gateway that hung up should end in an error, not SIGPIPE
+                if (send(socket_fd, message.data(), message.size(), MSG_NOSIGNAL) < 0) {
+                    shutDownWithFailure(fmt::format("error writing to the gateway: {}", strerror(errno)));
+                }
             }
             else
                 debug("No message to send");
@@ -174,14 +181,13 @@ void writer_thread(int socket_fd) {
 
 void process_message_thread() {
 
-    // Force a publish the first time around
-    bool firstRun = true;
-
     while (keepRunning) {
         std::vector<uint8_t> message;
 
-        // Block until a new message is available in the queue
-        incomingSocketMessages->wait_dequeue(message);
+        // Wait for a message, waking up now and then to notice a shutdown
+        if (!incomingSocketMessages->wait_dequeue_timed(message, std::chrono::seconds(1))) {
+            continue;
+        }
 
         // Log the received message
         debug("Processing message: [{}]", joinStrings(creatures::Window::bytesToHexStrings(message)));
@@ -196,7 +202,8 @@ void process_message_thread() {
         uint8_t messageType = message[2];
 
         switch (messageType) {
-            case 0x5C: { // STATUS message
+            case CMD_STATUS_WITHOUT_POLL:
+            case CMD_STATUS_WITH_POLL: { // STATUS message
                 debug("Detected STATUS message.");
 
                 // Ensure the message is the correct size for a STATUS message
@@ -205,28 +212,10 @@ void process_message_thread() {
                     break;
                 }
 
-                // Extract the window statuses
-                uint8_t window1Status = message[3];
-                uint8_t window2Status = message[4];
-                uint8_t window3Status = message[5];
-                uint8_t window4Status = message[6];
+                lastStatus = std::chrono::steady_clock::now().time_since_epoch().count();
 
-                // Update the window statuses
-                window1->setStatus(window1Status);
-                window2->setStatus(window2Status);
-                window3->setStatus(window3Status);
-                window4->setStatus(window4Status);
-
-                // Log the updated statuses
-                debug("Updated window statuses");
-                debug("Window 1: {}", window1->toJson());
-                debug("Window 2: {}", window2->toJson());
-                debug("Window 3: {}", window3->toJson());
-                debug("Window 4: {}", window4->toJson());
-
-                // Publish this update on MQTT
-                mqttClient->publishWindows(firstRun);
-                firstRun = false;
+                // One status byte per window. The MQTT thread applies and publishes them.
+                mqttClient->updateWindows({message.begin() + 3, message.begin() + 7});
                 break;
             }
 
@@ -250,9 +239,21 @@ void process_message_thread() {
 }
 
 
-int main() {
+int main(int argc, char **argv) {
+
+    // Parse the command line first: help2man builds the manual from --help, so
+    // nothing may reach stdout before this.
+    creatures::Config config;
+    try {
+        config = creatures::loadConfiguration(argc, argv);
+    }
+    catch (const std::exception &e) {
+        std::cerr << "andersen-mqtt: " << e.what() << std::endl;
+        return EXIT_FAILURE;
+    }
 
     std::signal(SIGINT, signalHandler);
+    std::signal(SIGTERM, signalHandler);
 
     try {
         // Set up our locale. If this vomits, install `locales-all`
@@ -264,9 +265,9 @@ int main() {
     }
 
     // Console logger
-    spdlog::set_level(spdlog::level::trace);
+    spdlog::set_level(config.logLevel);
 
-    info("Welcome to Andersen to MQTT! 🪟");
+    info("Welcome to Andersen to MQTT {}! 🪟", ANDERSEN_MQTT_VERSION);
 
 
     // Leave some version info to be found
@@ -283,74 +284,80 @@ int main() {
     incomingSocketMessages = std::make_shared<moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>>>();
 
     // Make the windows
-    window1 = std::make_shared<creatures::Window>("window1", 1);
-    window2 = std::make_shared<creatures::Window>("window2", 2);
-    window3 = std::make_shared<creatures::Window>("window3", 3);
-    window4 = std::make_shared<creatures::Window>("window4", 4);
+    window1 = std::make_shared<creatures::Window>("window1", 1, config.topicPrefix);
+    window2 = std::make_shared<creatures::Window>("window2", 2, config.topicPrefix);
+    window3 = std::make_shared<creatures::Window>("window3", 3, config.topicPrefix);
+    window4 = std::make_shared<creatures::Window>("window4", 4, config.topicPrefix);
 
 
-    mqttClient = new creatures::MQTTClient("10.3.2.5", "1883");
+    mqttClient = new creatures::MQTTClient(config.mqttHost, std::to_string(config.mqttPort), config.mqttClientId,
+                                           [](const std::string &reason) { shutDownWithFailure(reason); });
     mqttClient->addWindow(window1);
     mqttClient->addWindow(window2);
     mqttClient->addWindow(window3);
     mqttClient->addWindow(window4);
 
-    mqttClient->start();
-
-
-    const char* host = "10.3.2.5";
-    int port = 6000;
-
-    int socket_fd = connect_to_server(host, port);
-    if (socket_fd < 0) {
-        return 1;
+    try {
+        mqttClient->start();
+    }
+    catch (const std::exception &e) {
+        critical("Unable to connect to the MQTT broker at {}:{}: {}", config.mqttHost, config.mqttPort, e.what());
+        mqttClient->stop();
+        return EXIT_FAILURE;
     }
 
-
+    int socket_fd = connect_to_server(config.gatewayHost, config.gatewayPort);
+    if (socket_fd < 0) {
+        mqttClient->stop();
+        return EXIT_FAILURE;
+    }
 
     std::thread reader(reader_thread, socket_fd);
     std::thread writer(writer_thread, socket_fd);
     std::thread processor(process_message_thread);
 
+    // A gateway can stop answering without closing the connection, so give up
+    // if no status arrives for a while, and let systemd connect again.
+    const auto statusTimeout = std::max(std::chrono::seconds(30),
+                                        std::chrono::seconds(3 * config.pollIntervalSeconds));
+    lastStatus = std::chrono::steady_clock::now().time_since_epoch().count();
 
-    // Define a vector of hex string values
-    //std::vector<std::string> hexStrings = {SRC_CONTROLLER, DST_PANEL_1, WINDOW_ALL, CMD_STATUS_WITHOUT_POLL, "0x62"};
-
-
-
-    // Attempt to open a window
-    //std::vector<uint8_t> openWindowOne = {SRC_CONTROLLER, DST_PANEL_1, WINDOW_ALL, CMD_CLOSE};
-    //checksum = calculateChecksum(openWindowOne);
-    //openWindowOne.push_back(checksum);
-    //writeToSerial(serial_port, openWindowOne);
-
-
-
-    // Do something else or just wait here
-    int count = 0;
-    while(keepRunning /*&& count++ < 25*/) {
-        debug("Polling all windows...");
-        std::vector<uint8_t> event = {SRC_CONTROLLER, DST_PANEL_1, WINDOW_ALL, CMD_STATUS_WITHOUT_POLL};
-        auto ck = creatures::Window::calculateChecksum(event);
-        event.push_back(ck);
-        outgoingSocketMessages->enqueue(std::move(event));
-
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+    // Poll the windows until something asks us to stop
+    auto nextPoll = std::chrono::steady_clock::now();
+    while (keepRunning) {
+        auto sinceStatus = std::chrono::steady_clock::now() -
+                           std::chrono::steady_clock::time_point(std::chrono::steady_clock::duration(lastStatus.load()));
+        if (sinceStatus > statusTimeout) {
+            shutDownWithFailure(fmt::format("no status from the window controller in {} seconds",
+                                            std::chrono::duration_cast<std::chrono::seconds>(statusTimeout).count()));
+            break;
+        }
+        if (std::chrono::steady_clock::now() >= nextPoll) {
+            debug("Polling all windows...");
+            std::vector<uint8_t> event = {SRC_CONTROLLER, DST_PANEL_1, WINDOW_ALL, CMD_STATUS_WITHOUT_POLL};
+            auto ck = creatures::Window::calculateChecksum(event);
+            event.push_back(ck);
+            outgoingSocketMessages->enqueue(std::move(event));
+            nextPoll += std::chrono::seconds(config.pollIntervalSeconds);
+        }
+        // Short sleeps so a signal or a lost connection is noticed quickly
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    std::this_thread::sleep_for(std::chrono::seconds(5));
-    keepRunning = false; // Tell the threads to finish up
 
-    // Signal to the writer to stop
-    outgoingSocketMessages->enqueue({});
+    info("stopping");
 
-    // Make sure to join your threads
-    if (mqttClient) {
-        mqttClient->stop();
-    }
+    mqttClient->stop();
+
+    // Wake the reader out of recv(), then wait for every thread
+    shutdown(socket_fd, SHUT_RDWR);
     reader.join();
     writer.join();
-
+    processor.join();
     close(socket_fd);
 
-    return 0;
+    delete mqttClient;
+    mqttClient = nullptr;
+
+    info("stopped{}", exitStatus == EXIT_SUCCESS ? "" : " after a failure");
+    return exitStatus;
 }

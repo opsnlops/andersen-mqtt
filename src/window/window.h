@@ -43,7 +43,8 @@ namespace creatures {
     class Window {
 
     public:
-        explicit Window(std::string name, std::uint8_t number) : name(std::move(name)), number(number) {}
+        Window(std::string name, std::uint8_t number, std::string topicPrefix)
+                : name(std::move(name)), number(number), topicPrefix(std::move(topicPrefix)) {}
 
         void setStatus(uint8_t statusByte);
 
@@ -83,14 +84,15 @@ namespace creatures {
 
         std::string name;
         std::uint8_t number;
+        std::string topicPrefix;
 
-        bool open;
-        bool movementObstructed;
-        bool screenMissing;
-        bool rfHeard;
-        bool rainSensed;
-        bool rainOverrideActive;
-        std::chrono::system_clock::time_point lastPolled;
+        bool open = false;
+        bool movementObstructed = false;
+        bool screenMissing = false;
+        bool rfHeard = false;
+        bool rainSensed = false;
+        bool rainOverrideActive = false;
+        std::chrono::system_clock::time_point lastPolled{};
 
         bool openUpdated = true;
         bool movementObstructedUpdated = true;

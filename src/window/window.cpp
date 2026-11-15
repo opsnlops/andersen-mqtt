@@ -21,14 +21,16 @@ namespace creatures {
 
     std::string Window::timePointToISO8601(const std::chrono::system_clock::time_point &tp) const {
         auto timeT = std::chrono::system_clock::to_time_t(tp);
+        std::tm utc{};
+        gmtime_r(&timeT, &utc);
         std::ostringstream oss;
-        oss << std::put_time(std::gmtime(&timeT), "%Y-%m-%dT%H:%M:%SZ");
+        oss << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
         return oss.str();
     }
 
 
     std::string Window::createPrefix() {
-        return "andersen-mqtt/windows/" + getName() + "/";
+        return topicPrefix + "/" + getName() + "/";
     }
 
     void Window::setStatus(uint8_t statusByte) {
@@ -178,15 +180,15 @@ namespace creatures {
 
         uint8_t checksum = 0;
 
-        debug("Calculating checksum for [{}]", joinStrings(creatures::Window::bytesToHexStrings(message)));
+        trace("Calculating checksum for [{}]", joinStrings(creatures::Window::bytesToHexStrings(message)));
 
         // Start summing from the second byte (index 1)
         for (size_t i = 1; i < message.size(); ++i) {
-            debug("Adding byte {}: 0x{:02X} (checksum so far: 0x{:02X})", i, message[i], checksum);
+            trace("Adding byte {}: 0x{:02X} (checksum so far: 0x{:02X})", i, message[i], checksum);
             checksum += message[i];
         }
 
-        debug("Final calculated checksum: 0x{:02X}", checksum);
+        trace("Final calculated checksum: 0x{:02X}", checksum);
         return checksum;
     }
 

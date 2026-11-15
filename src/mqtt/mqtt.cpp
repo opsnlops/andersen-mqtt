@@ -2,9 +2,10 @@
 // Created by @opsnlops on 11/22/23.
 //
 
+#include <cctype>
 #include <string>
 #include <sstream>
-#include <boost/asio/signal_set.hpp>
+#include <boost/asio/post.hpp>
 
 #include <mqtt_client_cpp.hpp>
 #include <mqtt/setup_log.hpp>
@@ -20,7 +21,9 @@ extern std::shared_ptr<moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>>
 
 namespace creatures {
 
-    MQTTClient::MQTTClient(std::string host, std::string port) {
+    MQTTClient::MQTTClient(std::string host, std::string port, std::string clientId,
+                           std::function<void(const std::string &)> connectionLost)
+            : connectionLost(std::move(connectionLost)) {
 
         info("creating a new MQTT instance for host {} and port {}", host, port);
 
@@ -28,14 +31,14 @@ namespace creatures {
         this->host = host;
         this->port = port;
 
-        this->connected = false;
-
         // Create the client
         client = mqtt::make_sync_client(this->ioc, this->host, this->port);
 
         // Setup client
-        client->set_client_id("andersen-mqtt");
+        client->set_client_id(clientId);
         client->set_clean_session(true);
+        // Ping the broker so a connection that dies silently is noticed
+        client->set_keep_alive_sec(30);
 
         // Bind the member function for the connack handler
         client->set_connack_handler(
@@ -69,6 +72,7 @@ namespace creatures {
     }
 
     void MQTTClient::stop() {
+        stopping = true;
         debug("stopping the ioc");
         ioc.stop();
 
@@ -96,6 +100,21 @@ namespace creatures {
 
         error("not subscribing since we're not connected");
         return false;
+    }
+
+    void MQTTClient::updateWindows(std::vector<uint8_t> statuses) {
+        boost::asio::post(ioc, [this, statuses = std::move(statuses)] {
+            for (const auto &window: windows) {
+                size_t index = window->getNumber() - 1;
+                if (index < statuses.size()) {
+                    window->setStatus(statuses[index]);
+                    debug("{}", window->toJson());
+                }
+            }
+            if (publishWindows(!publishedOnce)) {
+                publishedOnce = true;
+            }
+        });
     }
 
     bool MQTTClient::publishWindows(bool forcePublish) {
@@ -173,6 +192,14 @@ namespace creatures {
         debug("connection acknowledged! session present: {}, connect return code: {}",
               sp, MQTT_NS::connect_return_code_to_str(connack_return_code));
 
+        if (connack_return_code != MQTT_NS::connect_return_code::accepted) {
+            if (connectionLost) {
+                connectionLost(fmt::format("the MQTT broker refused the connection: {}",
+                                           MQTT_NS::connect_return_code_to_str(connack_return_code)));
+            }
+            return true;
+        }
+
         connected = true;
 
         // Now that we're connected, let's subscribe to all the windows
@@ -186,12 +213,17 @@ namespace creatures {
 
     void MQTTClient::on_close() {
 
-        this->connected = false;
-        info("MQTT connection closed");
+        connected = false;
+        if (!stopping && connectionLost) {
+            connectionLost("the connection to the MQTT broker closed");
+        }
     }
 
     void MQTTClient::on_error(MQTT_NS::error_code ec) {
-        error("MQTT error: {}", ec.message());
+        connected = false;
+        if (!stopping && connectionLost) {
+            connectionLost("MQTT error: " + ec.message());
+        }
     }
 
     bool MQTTClient::on_suback(packet_id_t packet_id, std::vector<MQTT_NS::suback_return_code> results) {
@@ -251,7 +283,8 @@ namespace creatures {
 
                 // Now figure out which command
                 uint8_t commandId;
-                switch (contents_str[0]) {
+                // Home Assistant sends OPEN, CLOSE and STOP; accept any case
+                switch (std::tolower(static_cast<unsigned char>(contents_str.empty() ? '\0' : contents_str[0]))) {
                     case 'o':
                         info("opening window {}", window->getName());
                         commandId = CMD_OPEN;
@@ -261,11 +294,11 @@ namespace creatures {
                         commandId = CMD_CLOSE;
                         break;
                     case 's':
-                        info("opening stopping {}", window->getName());
+                        info("stopping window {}", window->getName());
                         commandId = CMD_STOP;
                         break;
                     default:
-                        error("unknown command received for {}: ", window->getName(), contents_str);
+                        error("unknown command received for {}: '{}'", window->getName(), contents_str);
                         return false;
                 }
 

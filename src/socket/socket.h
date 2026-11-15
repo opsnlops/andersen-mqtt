@@ -1,7 +1,10 @@
-//
-// Created by April White on 1/26/25.
-//
+#ifndef ANDERSEN_MQTT_SOCKET_H
+#define ANDERSEN_MQTT_SOCKET_H
 
-#pragma once
+#include <string>
 
-int connect_to_server(const char* host, int port);
+// Connect to host:port over TCP. The host may be a name or an address. Returns
+// the socket, or -1 on failure.
+int connect_to_server(const std::string &host, int port);
+
+#endif //ANDERSEN_MQTT_SOCKET_H

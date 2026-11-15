@@ -1,0 +1,47 @@
+name: Build Debian Package
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: Package (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: 'true'
+
+      # Builds inside debian:trixie, never on the Ubuntu runner, then installs
+      # and checks the package in a clean Debian container.
+      - name: Build and check the Debian package
+        run: ./make_packages.sh
+
+      - name: Verify the package architecture
+        run: |
+          shopt -s nullglob
+          packages=(package/andersen-mqtt_*.deb)
+          test "${#packages[@]}" -eq 1
+          test "$(dpkg-deb --field "${packages[0]}" Architecture)" = "${{ matrix.arch }}"
+          dpkg-deb --info "${packages[0]}"
+          dpkg-deb --contents "${packages[0]}"
+
+      - name: Report lintian findings
+        # Report-only for now: findings are printed but don't fail the build.
+        run: ./report_lintian.sh || echo "::warning::lintian reported findings (report-only)"
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v7
+        with:
+          name: andersen-mqtt-${{ matrix.arch }}
+          path: package/andersen-mqtt_*.deb
+          if-no-files-found: error
+          retention-days: 7

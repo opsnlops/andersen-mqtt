@@ -1,0 +1,14 @@
+{
+  "mqtt": {
+    "host": "10.3.2.5",
+    "port": 1883,
+    "clientId": "andersen-mqtt",
+    "topicPrefix": "andersen-mqtt/windows"
+  },
+  "gateway": {
+    "host": "10.3.2.5",
+    "port": 6000
+  },
+  "pollIntervalSeconds": 5,
+  "logLevel": "info"
+}
