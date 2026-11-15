@@ -58,6 +58,12 @@ Prefix for every topic. Default
 Host name or address of the TCP serial gateway attached to the window
 controller. Default
 .BR 10.3.2.5 .
+.B andersen\-mqtt
+never opens a serial port itself. The gateway, such as
+.BR ser2net (8),
+owns the serial device and must pass raw bytes over plain TCP (not telnet),
+with the serial line at 9600 baud, 8N1 and no flow control. Only one client
+should connect to it at a time.
 .TP
 .B gateway.port
 Gateway TCP port. Default
@@ -160,4 +166,6 @@ mosquitto_pub \-h 10.3.2.5 \-t andersen\-mqtt/windows/window1/command \-m open
 .RE
 
 [SEE ALSO]
+.BR ser2net (8),
+.BR ser2net.yaml (5),
 .BR systemd.unit (5)
