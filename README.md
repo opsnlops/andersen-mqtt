@@ -45,7 +45,9 @@ For each of `window1` to `window4`, under `<topicPrefix>/<window>/`:
   `rf_heard`, `rain_sensed`, `rain_override_active` (`yes`/`no`), and
   `last_polled` (ISO 8601)
 - subscribed: `command`, where a message starting with `o` opens, `c` closes,
-  and `s` stops (any case, so Home Assistant's `OPEN`/`CLOSE`/`STOP` work)
+  and `s` stops (any case, so Home Assistant's `OPEN`/`CLOSE`/`STOP` work).
+  Retained commands are ignored, since the broker would replay them on every
+  start.
 
 ## Building the package
 
